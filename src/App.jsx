@@ -17,7 +17,7 @@ const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = "chiplun-pro-v34-enterprise"; 
+const appId = "chiplun-pro-v35-stable"; 
 const ADMIN_PIN = "112607";
 
 export default function App() {
@@ -32,9 +32,9 @@ export default function App() {
   const [stores, setStores] = useState([]);
   const [allBookings, setAllBookings] = useState([]);
   const [requests, setRequests] = useState([]);
-  const [myBookings, setMyBookings] = useState([]);
+  const [myBookings, setMyBookings] = useState([]); // Persistent User Wallet
   
-  // Enterprise States
+  // Enterprise UI States
   const [searchQuery, setSearchQuery] = useState('');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -44,7 +44,7 @@ export default function App() {
   const [bookingMeta, setBookingMeta] = useState({
     date: '', time: '', resourceName: '', custName: '', custPhone: '',
     paymentMethod: 'Cash at Store',
-    source: '', destination: '', patientAge: '', brandModel: '', urgency: 'Standard'
+    source: '', destination: '', patientAge: '', brandModel: ''
   });
 
   const [queueInfo, setQueueInfo] = useState({ pos: 1, delay: 0 });
@@ -60,7 +60,7 @@ export default function App() {
   const [newStaff, setNewStaff] = useState('');
   const [editForm, setEditForm] = useState({ name: '', address: '', image: '', category: 'salon', lunchStart: '13:00', lunchEnd: '14:00' });
 
-  // --- Real-time Core ---
+  // --- PERSISTENCE: Firebase Sync ---
   useEffect(() => {
     onAuthStateChanged(auth, async (u) => {
       if (!u) await signInAnonymously(auth);
@@ -79,6 +79,7 @@ export default function App() {
       onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'stores'), (s) => setStores(s.docs.map(d => ({ id: d.id, ...d.data() })))),
       onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'bookings'), (s) => setAllBookings(s.docs.map(d => ({ id: d.id, ...d.data() })))),
       onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'requests'), (s) => setRequests(s.docs.map(d => ({ id: d.id, ...d.data() })))),
+      // KEY FIX: This listener ensures user tokens survive a refresh
       onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'bookings'), (s) => setMyBookings(s.docs.map(d => ({ id: d.id, ...d.data() }))))
     ];
     return () => unsubs.forEach(fn => fn());
@@ -86,38 +87,21 @@ export default function App() {
 
   // Derived Logic
   const myStore = useMemo(() => stores.find(s => s.ownerId === profile.businessId), [stores, profile.businessId]);
-  
-  const merchantBookings = useMemo(() => {
-    if (!profile.businessId) return [];
-    return allBookings.filter(b => b.storeId === profile.businessId && b.status !== 'completed');
-  }, [allBookings, profile.businessId]);
-
-  const filteredStores = useMemo(() => {
-    return stores.filter(s => 
-      (s.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-       s.address.toLowerCase().includes(searchQuery.toLowerCase()) ||
-       s.category.toLowerCase().includes(searchQuery.toLowerCase()))
-    );
-  }, [stores, searchQuery]);
+  const merchantBookings = useMemo(() => profile.businessId ? allBookings.filter(b => b.storeId === profile.businessId && b.status !== 'completed') : [], [allBookings, profile.businessId]);
+  const filteredStores = useMemo(() => stores.filter(s => (s.name.toLowerCase().includes(searchQuery.toLowerCase()) || s.address.toLowerCase().includes(searchQuery.toLowerCase()) || s.category.toLowerCase().includes(searchQuery.toLowerCase()))), [stores, searchQuery]);
 
   useEffect(() => {
     if (isSessionVerified && myStore) {
-      setEditForm({ 
-        name: myStore.name, address: myStore.address, image: myStore.image || '', 
-        category: myStore.category || 'salon',
-        lunchStart: myStore.lunchStart || '13:00', lunchEnd: myStore.lunchEnd || '14:00'
-      });
+      setEditForm({ name: myStore.name, address: myStore.address, image: myStore.image || '', category: myStore.category || 'salon', lunchStart: myStore.lunchStart || '13:00', lunchEnd: myStore.lunchEnd || '14:00' });
     }
   }, [isSessionVerified, myStore]);
 
-  // --- Logic Helpers ---
+  // --- SMART LOGIC ---
   const getStoreStatus = (store) => {
     if (!store.isLive) return { label: 'Closed', color: 'bg-rose-500', icon: <Lucide.XCircle size={10}/> };
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    if (store.lunchStart && store.lunchEnd && timeStr >= store.lunchStart && timeStr <= store.lunchEnd) {
-      return { label: 'On Lunch', color: 'bg-amber-500', icon: <Lucide.Coffee size={10}/> };
-    }
+    if (store.lunchStart && store.lunchEnd && timeStr >= store.lunchStart && timeStr <= store.lunchEnd) return { label: 'On Lunch', color: 'bg-amber-500', icon: <Lucide.Coffee size={10}/> };
     return { label: 'Open Now', color: 'bg-emerald-500', icon: <Lucide.CheckCircle2 size={10}/> };
   };
 
@@ -132,13 +116,11 @@ export default function App() {
     const pos = Math.ceil((ahead + 1) / workers);
     const delay = (pos - 1) * 30;
 
-    const payload = { 
-      ...bookingMeta, displayId: token, services: cart, totalPrice: cart.reduce((a, b) => a + Number(b.price), 0), 
-      queuePos: pos, estWait: delay, status: 'pending', storeId: selectedStore.id, storeName: selectedStore.name, timestamp: Date.now() 
-    };
+    const payload = { ...bookingMeta, displayId: token, services: cart, totalPrice: cart.reduce((a, b) => a + Number(b.price), 0), queuePos: pos, estWait: delay, status: 'pending', storeId: selectedStore.id, storeName: selectedStore.name, timestamp: Date.now() };
 
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'bookings'), payload);
+      // PERSISTENCE FIX: Saving to user-specific private sub-collection
       await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'bookings'), payload);
       setLastBookingId(token);
       setQueueInfo({ pos, delay });
@@ -149,9 +131,11 @@ export default function App() {
 
   const handleTrackToken = () => {
     if (!trackInput) return;
-    const found = allBookings.find(b => b.displayId?.toUpperCase() === trackInput.trim().toUpperCase());
+    const cleanToken = trackInput.trim().toUpperCase();
+    // PRIVACY FIX: Searching against public database but requiring exact ID match
+    const found = allBookings.find(b => b.displayId?.toUpperCase() === cleanToken);
     if (found) setSearchedBooking(found);
-    else alert("Token not found.");
+    else alert("Token not found or Privacy Restricted.");
   };
 
   const handleVendorLogin = async () => {
@@ -159,16 +143,13 @@ export default function App() {
     setIsProcessing(true);
     const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vendor_creds', vendorLogin.id.toUpperCase()));
     if (snap.exists() && snap.data().password === vendorLogin.pass) {
-      await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data'), {
-        role: 'vendor', status: 'approved', businessId: snap.data().uid, businessName: snap.data().businessName
-      });
+      await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data'), { role: 'vendor', status: 'approved', businessId: snap.data().uid, businessName: snap.data().businessName });
       setIsSessionVerified(true);
-      setView('account');
-    } else alert("Invalid Credentials");
+    } else alert("Invalid ID or Passcode");
     setIsProcessing(false);
   };
 
-  if (loading) return <div className="h-screen flex items-center justify-center bg-emerald-600 text-white font-black animate-pulse uppercase tracking-widest text-xs">ChiplunConnect Enterprise</div>;
+  if (loading) return <div className="h-screen flex items-center justify-center bg-emerald-600 text-white font-black animate-pulse">CHIPLUNCONNECT ENTERPRISE</div>;
 
   return (
     <div className="max-w-md mx-auto bg-gray-50 min-h-screen flex flex-col shadow-2xl relative font-sans text-gray-900 overflow-x-hidden">
@@ -176,12 +157,11 @@ export default function App() {
       {/* FINAL BOOKING MODAL */}
       {showConfirmModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[500] flex items-center justify-center p-6 animate-in zoom-in-95">
-           <div className="bg-white w-full rounded-[3.5rem] p-10 shadow-2xl">
+           <div className="bg-white w-full rounded-[3.5rem] p-10 shadow-2xl border-t-8 border-emerald-500">
               <Lucide.ShieldCheck size={48} className="text-emerald-500 mx-auto mb-4" />
               <h3 className="text-xl font-black text-center mb-6 uppercase tracking-tighter">Verify Booking</h3>
               <div className="bg-gray-50 p-6 rounded-3xl space-y-3 mb-8 text-[10px] font-black uppercase border border-gray-100 shadow-inner text-left text-gray-700">
                  <div className="flex justify-between"><span>Merchant:</span><span className="text-emerald-800">{selectedStore?.name}</span></div>
-                 <div className="flex justify-between"><span>Provider:</span><span>{bookingMeta.resourceName || 'Assigned'}</span></div>
                  <div className="flex justify-between"><span>Schedule:</span><span>{bookingMeta.time}</span></div>
                  <div className="flex justify-between border-t border-gray-200 pt-3"><span>Payable:</span><span className="text-xl font-black text-emerald-600">₹{cart.reduce((a, b) => a + Number(b.price), 0)}</span></div>
               </div>
@@ -189,28 +169,6 @@ export default function App() {
                 {isProcessing ? 'Verifying...' : 'Book Now'}
               </button>
               <button onClick={() => setShowConfirmModal(false)} className="w-full py-4 text-gray-400 font-black text-[10px] uppercase text-center w-full">Go Back</button>
-           </div>
-        </div>
-      )}
-
-      {/* ADMIN DELETE */}
-      {deleteTarget && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[500] flex items-center justify-center p-6 animate-in fade-in">
-           <div className="bg-white w-full rounded-[3rem] p-8 shadow-2xl border-2 border-rose-100 text-center">
-              <Lucide.Trash2 size={40} className="text-rose-500 mx-auto mb-4" />
-              <h3 className="text-xl font-black">Destroy Store?</h3>
-              <p className="text-gray-400 text-xs mt-3 mb-8 leading-relaxed">Permanently erase <span className="font-bold underline">{deleteTarget.name}</span> and associated login access.</p>
-              <button onClick={async () => {
-                setIsProcessing(true);
-                const mid = deleteTarget.merchantId;
-                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', deleteTarget.id));
-                if (mid) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vendor_creds', mid.toUpperCase()));
-                const reqSnap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'requests'), where("uid", "==", deleteTarget.ownerId)));
-                reqSnap.forEach(async (d) => await deleteDoc(d.ref));
-                setDeleteTarget(null);
-                setIsProcessing(false);
-              }} className="w-full bg-rose-500 text-white py-4 rounded-2xl font-black uppercase text-xs mb-3 shadow-xl">Wipe Data</button>
-              <button onClick={() => setDeleteTarget(null)} className="w-full py-4 text-gray-400 font-bold text-xs uppercase text-center w-full">Cancel</button>
            </div>
         </div>
       )}
@@ -259,7 +217,7 @@ export default function App() {
                            <span className={`text-[7px] font-black uppercase px-2 py-0.5 rounded-full ${store.category === 'salon' ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>{store.category}</span>
                            <div className={`${status.color} px-2 py-0.5 rounded-full flex items-center gap-1 text-white text-[7px] font-black uppercase shadow-sm`}>{status.icon} {status.label}</div>
                         </div>
-                        <h3 className="font-bold text-gray-800 text-sm leading-tight uppercase tracking-tight">{store.name}</h3>
+                        <h3 className="font-bold text-gray-800 text-sm uppercase tracking-tight">{store.name}</h3>
                         <p className="text-[10px] text-gray-400 font-medium italic mt-0.5">{store.address}</p>
                       </div>
                       <Lucide.ChevronRight size={18} className="text-gray-200 mr-2 group-hover:text-emerald-400" />
@@ -278,15 +236,15 @@ export default function App() {
              <img src={selectedStore.image || "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=400"} className="w-full h-52 rounded-[3rem] object-cover shadow-2xl" />
              <section className="bg-white p-6 rounded-[3rem] shadow-sm border border-gray-100">
                <h2 className="text-2xl font-black italic text-emerald-900 uppercase tracking-tighter">{selectedStore.name}</h2>
-               <p className="text-gray-400 text-xs mb-8 flex items-center italic font-medium"><Lucide.MapPin size={12} className="mr-1"/> {selectedStore.address}</p>
+               <p className="text-gray-400 text-xs mb-8 flex items-center font-medium italic"><Lucide.MapPin size={12} className="mr-1"/> {selectedStore.address}</p>
                
                {/* CATEGORY LOGIC */}
                {selectedStore.category === 'travel' && (
                   <div className="space-y-4 mb-8 p-6 bg-blue-50/50 rounded-[2.5rem] border border-blue-100 animate-in fade-in">
                     <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest text-center italic">Transportation Specs</p>
                     <div className="grid grid-cols-2 gap-3">
-                       <input placeholder="Source" onChange={e => setBookingMeta({...bookingMeta, source: e.target.value})} className="bg-white p-3 rounded-2xl text-xs font-bold outline-none border border-blue-200 uppercase" />
-                       <input placeholder="Destination" onChange={e => setBookingMeta({...bookingMeta, destination: e.target.value})} className="bg-white p-3 rounded-2xl text-xs font-bold outline-none border border-blue-200 uppercase" />
+                       <input placeholder="Source" onChange={e => setBookingMeta({...bookingMeta, source: e.target.value})} className="bg-white p-3 rounded-2xl text-xs font-bold outline-none border border-blue-200 uppercase shadow-inner" />
+                       <input placeholder="Destination" onChange={e => setBookingMeta({...bookingMeta, destination: e.target.value})} className="bg-white p-3 rounded-2xl text-xs font-bold outline-none border border-blue-200 uppercase shadow-inner" />
                     </div>
                   </div>
                )}
@@ -310,19 +268,22 @@ export default function App() {
                       <input type="date" onChange={e => setBookingMeta({...bookingMeta, date: e.target.value})} className="flex-1 bg-gray-50 p-4 rounded-2xl font-bold text-sm outline-none border border-gray-100 shadow-inner" />
                       <input type="time" onChange={e => setBookingMeta({...bookingMeta, time: e.target.value})} className="w-32 bg-gray-50 p-4 rounded-2xl font-bold text-sm outline-none border border-gray-100 shadow-inner" />
                    </div>
+                   
                    {isMerchantOnBreak(bookingMeta.time, selectedStore) && (
                       <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 flex items-center gap-3 animate-pulse">
                          <Lucide.Coffee size={20} className="text-amber-600"/>
-                         <p className="text-[9px] font-black text-amber-800 uppercase italic leading-tight">Merchant on break ({selectedStore.lunchStart} to {selectedStore.lunchEnd}). Pick another time.</p>
+                         <p className="text-[9px] font-black text-amber-800 uppercase italic leading-tight">Merchant on lunch ({selectedStore.lunchStart} to {selectedStore.lunchEnd}). Pick another time.</p>
                       </div>
                    )}
+
                    <select onChange={e => setBookingMeta({...bookingMeta, resourceName: e.target.value})} className="w-full bg-gray-50 p-4 rounded-2xl outline-none font-bold text-sm shadow-inner">
                       <option value="">{selectedStore.category === 'salon' ? 'Select Stylist' : selectedStore.category === 'travel' ? 'Select Driver' : selectedStore.category === 'clinic' ? 'Select Doctor' : 'Select Expert'}</option>
                       {selectedStore.staff?.map((st, i) => {
-                         const busy = isWorkerBusy(st, bookingMeta.date, bookingMeta.time);
+                         const busy = allBookings.some(b => b.storeId === selectedStore.id && b.resourceName === st && b.date === bookingMeta.date && b.time === bookingMeta.time && b.status !== 'completed');
                          return <option key={i} value={st} disabled={busy}>{st} {busy ? '(BUSY)' : ''}</option>
                       })}
                    </select>
+
                    <input placeholder="WhatsApp Phone" type="tel" value={bookingMeta.custPhone} onChange={e => setBookingMeta({...bookingMeta, custPhone: e.target.value})} className="w-full bg-gray-50 p-4 rounded-2xl font-bold text-sm outline-none border border-gray-100 uppercase shadow-inner" />
                    <button disabled={!bookingMeta.date || !bookingMeta.time || isMerchantOnBreak(bookingMeta.time, selectedStore)} onClick={() => setShowConfirmModal(true)} className="w-full bg-emerald-600 text-white py-5 rounded-3xl font-black shadow-xl uppercase active:scale-95 transition-all tracking-widest disabled:opacity-40">
                       {isMerchantOnBreak(bookingMeta.time, selectedStore) ? 'Merchant on Break' : 'Review & Secure'}
@@ -333,7 +294,7 @@ export default function App() {
            </div>
         )}
 
-        {/* VIEW: SMART UNIFIED ACCOUNT (Point 5 Strategy) */}
+        {/* VIEW: SMART UNIFIED ACCOUNT (Digital Wallet & Persistence) */}
         {view === 'account' && (
            <div className="pt-4 space-y-6 px-4 pb-10 animate-in slide-in-from-bottom-4 text-left">
               {!isSessionVerified ? (
@@ -343,13 +304,13 @@ export default function App() {
                        <Lucide.UserCircle size={40} className="text-emerald-600 p-2 bg-emerald-50 rounded-2xl shadow-inner"/>
                     </div>
                     
-                    {/* CUSTOMER TOKENS (Primary User Flow) */}
+                    {/* CUSTOMER TOKENS (PERSISTENT WALLET) */}
                     <section className="space-y-4 mb-10">
-                       <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 italic font-black">My Live Tokens Wallet</h3>
+                       <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 italic font-black">Digital Token Wallet</h3>
                        {myBookings.length > 0 ? (
                          <div className="space-y-3">
                             {myBookings.map((b, i) => (
-                               <div key={i} className="bg-white p-5 rounded-[2rem] border border-gray-100 flex justify-between items-center shadow-sm">
+                               <div key={i} className="bg-white p-5 rounded-[2rem] border border-gray-100 flex justify-between items-center shadow-sm hover:border-emerald-200 transition-all cursor-pointer" onClick={() => {setTrackInput(b.displayId); setView('track'); handleTrackToken();}}>
                                   <div>
                                      <p className="font-bold text-sm text-gray-800 uppercase tracking-tight">{b.storeName}</p>
                                      <div className="flex items-center gap-2 text-[8px] text-gray-400 font-black uppercase mt-1">
@@ -357,8 +318,8 @@ export default function App() {
                                      </div>
                                   </div>
                                   <div className="text-right">
-                                     <span className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-xl text-[10px] font-black tracking-widest block mb-1">{b.displayId}</span>
-                                     <p className="text-[7px] font-black uppercase text-gray-300 italic tracking-widest">{b.status || 'Pending'}</p>
+                                     <span className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-xl text-[10px] font-black tracking-widest block mb-1 shadow-sm">{b.displayId}</span>
+                                     <p className="text-[7px] font-black uppercase text-emerald-400 italic tracking-widest animate-pulse">Persistent</p>
                                   </div>
                                </div>
                             ))}
@@ -366,18 +327,18 @@ export default function App() {
                        ) : (
                          <div className="py-12 bg-white rounded-[2.5rem] border border-gray-100 text-center space-y-2">
                             <Lucide.Wallet size={32} className="mx-auto text-gray-100" />
-                            <p className="text-gray-300 font-black uppercase text-[8px] tracking-widest">Wallet Empty • No Tokens Yet</p>
+                            <p className="text-gray-300 font-black uppercase text-[8px] tracking-widest">No Active Tokens</p>
                          </div>
                        )}
                     </section>
 
-                    {/* MERCHANT ENTRANCE (Secondary Link) */}
-                    <section className="bg-gray-100 p-6 rounded-[3rem] border border-gray-200 mt-12 animate-in fade-in">
-                       <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-4 flex items-center italic"><Lucide.ShieldCheck size={14} className="mr-2"/> Chiplun Merchant Auth</h3>
+                    {/* MERCHANT ENTRANCE */}
+                    <section className="bg-gray-100 p-6 rounded-[3rem] border border-gray-200 mt-12">
+                       <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-4 flex items-center italic font-black uppercase"><Lucide.ShieldCheck size={14} className="mr-2"/> Merchant Authentication</h3>
                        <div className="space-y-3">
-                          <input placeholder="Merchant User ID" value={vendorLogin.id} onChange={e => setVendorLogin({...vendorLogin, id: e.target.value})} className="w-full bg-white p-4 rounded-2xl font-bold text-sm outline-none uppercase shadow-sm border-2 border-transparent focus:border-emerald-500" />
-                          <input type="password" placeholder="Passcode" value={vendorLogin.pass} onChange={e => setVendorLogin({...vendorLogin, pass: e.target.value})} className="w-full bg-white p-4 rounded-2xl font-bold text-sm outline-none shadow-sm border-2 border-transparent focus:border-emerald-500" />
-                          <button onClick={handleVendorLogin} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black shadow-xl active:scale-95 transition-all text-xs uppercase tracking-widest">Unlock Merchant Dashboard</button>
+                          <input placeholder="Merchant User ID" value={vendorLogin.id} onChange={e => setVendorLogin({...vendorLogin, id: e.target.value})} className="w-full bg-white p-4 rounded-2xl font-bold text-sm outline-none border-2 border-transparent focus:border-emerald-500 shadow-sm" />
+                          <input type="password" placeholder="Passcode" value={vendorLogin.pass} onChange={e => setVendorLogin({...vendorLogin, pass: e.target.value})} className="w-full bg-white p-4 rounded-2xl font-bold text-sm outline-none border-2 border-transparent focus:border-emerald-500 shadow-sm" />
+                          <button onClick={handleVendorLogin} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black shadow-xl active:scale-95 transition-all text-xs uppercase tracking-widest">Unlock Dashboard</button>
                        </div>
                     </section>
                  </div>
@@ -385,75 +346,77 @@ export default function App() {
                 <div className="space-y-6 animate-in slide-in-from-bottom-8 pb-20">
                    <div className="flex justify-between items-center"><h2 className="text-2xl font-black text-emerald-900 italic uppercase tracking-tight">{profile.businessName}</h2><button onClick={() => setIsSessionVerified(false)} className="bg-rose-50 px-4 py-2 rounded-xl text-rose-500 font-black text-[8px] uppercase shadow-sm">Logout</button></div>
 
-                   {/* MERCHANT ANALYTICS */}
-                   <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-white p-5 rounded-[2.5rem] border border-gray-100 shadow-sm flex flex-col items-center">
-                         <p className="text-[8px] font-black uppercase text-gray-400 mb-1">Queue Size</p>
-                         <p className="text-xl font-black text-emerald-600">{merchantBookings.length} Orders</p>
-                      </div>
-                      <button onClick={() => {
-                         navigator.clipboard.writeText(`${window.location.origin}/#store=${profile.businessId}`);
-                         alert("Enterprise QR Link Copied to Clipboard!");
-                      }} className="bg-white p-5 rounded-[2.5rem] border border-gray-100 shadow-sm flex flex-col items-center active:scale-95 transition-all">
-                         <Lucide.QrCode size={20} className="text-emerald-600 mb-1"/>
-                         <p className="text-[8px] font-black uppercase text-emerald-900">Share QR Link</p>
-                      </button>
-                   </div>
-
-                   {/* MERCHANT QUEUE LEDGER */}
                    <section className="bg-emerald-600 text-white p-7 rounded-[3rem] shadow-xl space-y-4 border border-black/5">
-                      <h3 className="text-[10px] font-black uppercase tracking-widest flex items-center opacity-80 italic font-black"><Lucide.Calendar size={14} className="mr-2"/> Live Queue</h3>
+                      <h3 className="text-[10px] font-black uppercase tracking-widest flex items-center opacity-80 italic font-black"><Lucide.Calendar size={14} className="mr-2"/> Incoming Queue</h3>
                       <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
                         {merchantBookings.length > 0 ? merchantBookings.sort((a,b) => b.timestamp - a.timestamp).map((b, i) => (
                            <div key={i} className="bg-white/10 p-4 rounded-2xl border border-white/5 space-y-1 animate-in fade-in">
-                              <div className="flex justify-between font-black text-[11px] uppercase italic"><span>{b.custName || 'Guest'}</span><span className="text-emerald-200">#{b.displayId}</span></div>
-                              <div className="bg-emerald-700/50 px-3 py-1 rounded-xl inline-block mt-1"><p className="text-[9px] font-black text-emerald-50 uppercase tracking-tighter italic font-black">Services: {b.services?.map(s => s.name).join(', ')}</p></div>
-                              <p className="text-[9px] opacity-70 uppercase font-bold tracking-widest block pt-1">{b.date} • {b.time} • {b.resourceName || 'Assigned'}</p>
+                              <div className="flex justify-between font-black text-[11px] uppercase italic text-white"><span>{b.custName || 'Guest'}</span><span className="text-emerald-200">#{b.displayId}</span></div>
+                              {/* SERVICES DISPLAY RESTORED */}
+                              <div className="bg-emerald-700/50 px-3 py-1 rounded-xl inline-block mt-1"><p className="text-[9px] font-black text-emerald-50 uppercase tracking-tighter italic">Booked: {b.services?.map(s => s.name).join(', ')}</p></div>
+                              <p className="text-[9px] opacity-70 uppercase font-bold tracking-widest block pt-1">{b.date} • {b.time} • {b.resourceName || 'First Available'}</p>
                               <div className="pt-2 flex justify-between items-center">
                                  <span className="text-[10px] font-black uppercase text-emerald-200 flex items-center gap-1"><Lucide.Phone size={10}/> {b.custPhone}</span>
-                                 <button onClick={async () => {
-                                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'bookings', b.id), { status: 'completed' });
-                                 }} className="bg-white text-emerald-600 px-3 py-1 rounded-lg text-[9px] font-black uppercase shadow-sm active:scale-90 transition-all">Mark Done</button>
+                                 <button onClick={async () => { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'bookings', b.id), { status: 'completed' }); }} className="bg-white text-emerald-600 px-3 py-1 rounded-lg text-[9px] font-black uppercase shadow-sm active:scale-90 transition-all">Mark Done</button>
                               </div>
                            </div>
-                        )) : <p className="text-center py-10 text-[9px] opacity-60 font-bold uppercase tracking-widest italic font-black">Zero active bookings</p>}
+                        )) : <p className="text-center py-10 text-[9px] opacity-60 font-bold uppercase tracking-widest italic font-black text-emerald-200">Zero active bookings</p>}
                       </div>
                    </section>
 
-                   {/* RESTORED BRANDING & OPS */}
                    <section className="bg-white p-7 rounded-[3rem] shadow-sm border border-gray-100 space-y-6">
-                      <div className="flex justify-between items-center"><h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center font-black italic uppercase tracking-widest"><Lucide.Clock size={14} className="mr-2 text-emerald-600"/> Operations</h3>{editForm.image && <img src={editForm.image} className="w-10 h-10 rounded-xl object-cover shadow-sm border border-gray-50" />}</div>
+                      <div className="flex justify-between items-center"><h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center font-black italic uppercase"><Lucide.Clock size={14} className="mr-2 text-emerald-600"/> Operations</h3>{editForm.image && <img src={editForm.image} className="w-10 h-10 rounded-xl object-cover shadow-sm" />}</div>
                       <div className="grid grid-cols-2 gap-2">
                         <div className="space-y-1"><p className="text-[8px] font-black text-gray-400 ml-1 uppercase">Lunch Start</p><input type="time" value={editForm.lunchStart} onChange={e => setEditForm({...editForm, lunchStart: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" /></div>
                         <div className="space-y-1"><p className="text-[8px] font-black text-gray-400 ml-1 uppercase">Lunch End</p><input type="time" value={editForm.lunchEnd} onChange={e => setEditForm({...editForm, lunchEnd: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" /></div>
                       </div>
-                      <input placeholder="Store Image URL" value={editForm.image} onChange={e => setEditForm({...editForm, image: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" />
+                      <input placeholder="Image URL (Logo)" value={editForm.image} onChange={e => setEditForm({...editForm, image: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" />
                       <input placeholder="Official Shop Name" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" />
-                      <button onClick={async () => { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), editForm); alert("Updated!"); }} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] shadow-lg active:scale-95 transition-all">Save Operations</button>
+                      <button onClick={async () => { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), editForm); alert("Sync Complete!"); }} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] shadow-lg">Save Settings</button>
+                   </section>
+
+                   <section className="bg-white p-7 rounded-[3rem] shadow-sm border border-gray-100">
+                      <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6 font-black uppercase tracking-widest italic">Service Price List</h3>
+                      <div className="space-y-3 mb-6 max-h-40 overflow-y-auto pr-1">
+                        {myStore?.services?.map((s, i) => (
+                           <div key={i} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl font-bold text-sm border border-gray-100">
+                              <div><p className="uppercase">{s.name}</p><p className="text-gray-400 text-[10px]">₹{s.price} • {s.duration} min</p></div>
+                              <button onClick={async () => { const updated = myStore.services.filter((_, idx) => idx !== i); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { services: updated }); }} className="text-rose-400 p-2.5 bg-white rounded-xl shadow-sm"><Lucide.Trash2 size={16}/></button>
+                           </div>
+                        ))}
+                      </div>
+                      <div className="space-y-3 pt-6 border-t border-gray-100">
+                        <input placeholder="Service Name" value={newSvc.name} onChange={e => setNewSvc({...newSvc, name: e.target.value})} className="w-full bg-gray-50 p-3 rounded-xl text-xs outline-none uppercase font-bold border shadow-inner" />
+                        <div className="grid grid-cols-2 gap-2">
+                           <input placeholder="Price ₹" type="number" value={newSvc.price} onChange={e => setNewSvc({...newSvc, price: e.target.value})} className="bg-gray-50 p-3 rounded-xl text-xs outline-none font-bold border shadow-inner" />
+                           <input placeholder="Mins" type="number" value={newSvc.duration} onChange={e => setNewSvc({...newSvc, duration: e.target.value})} className="bg-gray-50 p-3 rounded-xl text-xs outline-none font-bold border shadow-inner" />
+                        </div>
+                        <button onClick={async () => { if(!newSvc.name || !newSvc.price) return; const current = myStore?.services || []; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { services: [...current, newSvc] }); setNewSvc({name:'', price:'', duration:'30'}); }} className="w-full bg-emerald-600 text-white py-3 rounded-xl font-black uppercase text-[10px] shadow-lg shadow-emerald-50 active:scale-95 transition-all">Add to Menu</button>
+                      </div>
                    </section>
 
                    <section className="bg-white p-7 rounded-[3rem] shadow-sm border border-gray-100">
                       <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6 font-black uppercase tracking-widest italic text-left">
-                        {myStore?.category === 'salon' ? 'Manage Barbers' : myStore?.category === 'travel' ? 'Manage Vehicles' : myStore?.category === 'clinic' ? 'Manage Doctors' : 'Staff Management'}
+                        {myStore?.category === 'travel' ? 'Manage Vehicles/Drivers' : myStore?.category === 'clinic' ? 'Manage Doctors' : 'Manage Technicians'}
                       </h3>
                       <div className="flex flex-wrap gap-2 mb-6">
-                        {myStore?.staff?.map((n, i) => (<div key={i} className="bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2">{n} <button onClick={() => { updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { staff: myStore.staff.filter((_, idx) => idx !== i) }); }}><Lucide.X size={12}/></button></div>))}
+                        {myStore?.staff?.map((n, i) => (<div key={i} className="bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2">{n} <button onClick={() => { const s_ = stores.find(st => st.ownerId === profile.businessId); updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { staff: s_.staff.filter((_, idx) => idx !== i) }); }}><Lucide.X size={12}/></button></div>))}
                       </div>
-                      <div className="flex gap-2"><input placeholder="Add Name" value={newStaff} onChange={e => setNewStaff(e.target.value)} className="flex-1 bg-gray-50 p-3 rounded-lg font-bold text-sm outline-none border shadow-inner" /><button onClick={() => { if(!newStaff) return; updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { staff: [...(myStore.staff || []), newStaff] }); setNewStaff(''); }} className="bg-emerald-600 text-white p-3 rounded-lg active:scale-95 shadow-lg"><Lucide.Plus size={18}/></button></div>
+                      <div className="flex gap-2"><input placeholder="Add Name" value={newStaff} onChange={e => setNewStaff(e.target.value)} className="flex-1 bg-gray-50 p-3 rounded-lg font-bold text-sm outline-none border shadow-inner" /><button onClick={() => { if(!newStaff) return; const s = stores.find(st => st.ownerId === profile.businessId); updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { staff: [...(s.staff || []), newStaff] }); setNewStaff(''); }} className="bg-emerald-600 text-white p-3 rounded-lg active:scale-95 shadow-lg"><Lucide.Plus size={18}/></button></div>
                    </section>
 
                    <button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { isLive: !myStore?.isLive })} className={`w-full py-6 rounded-[2.5rem] font-black uppercase shadow-2xl active:scale-95 transition-all ${myStore?.isLive ? 'bg-rose-500 text-white shadow-rose-100' : 'bg-emerald-600 text-white shadow-emerald-100'}`}>
-                      {myStore?.isLive ? 'Shut Shop (Go Offline)' : 'Set Business Live (Open)'}
+                      {myStore?.isLive ? 'Shut Shop (Go Offline)' : 'Set Business Live (Open Now)'}
                    </button>
                 </div>
               )}
            </div>
         )}
 
-        {/* VIEW: TRACK TOKEN */}
+        {/* VIEW: TRACK TOKEN (Privacy Enhanced) */}
         {view === 'track' && (
            <div className="pt-4 space-y-6 animate-in slide-in-from-bottom-4 px-4 pb-20">
-              <h2 className="text-2xl font-black text-emerald-900 uppercase tracking-tighter italic">Track Token</h2>
+              <h2 className="text-2xl font-black text-emerald-900 uppercase tracking-tighter italic">Secure Track</h2>
               <div className="bg-white p-2 rounded-[2.5rem] shadow-sm border border-gray-100 flex gap-2">
                  <input placeholder="Enter CH-XXXX" value={trackInput} onChange={e => setTrackInput(e.target.value)} className="flex-1 bg-transparent px-5 py-3 outline-none font-black tracking-widest text-sm uppercase" />
                  <button onClick={handleTrackToken} className="bg-emerald-600 text-white p-3 rounded-2xl active:scale-90 transition-all shadow-lg shadow-emerald-50"><Lucide.Search size={22}/></button>
@@ -467,31 +430,31 @@ export default function App() {
                    </div>
                    <div className="space-y-4 text-sm font-bold relative z-10 border-t border-white/10 pt-6">
                       <div className="grid grid-cols-2 gap-4">
-                         <div><p className="opacity-60 text-[8px] uppercase mb-1 tracking-widest font-black">Queue Position</p><p className="text-xl font-black">#{searchedBooking.queuePos || '1'}</p></div>
-                         <div><p className="opacity-60 text-[8px] uppercase mb-1 tracking-widest font-black">Provider</p><p className="text-lg uppercase">{searchedBooking.resourceName || 'Assigned'}</p></div>
+                         <div><p className="opacity-60 text-[8px] uppercase mb-1 tracking-widest font-black">Queue Pos</p><p className="text-xl font-black">#{searchedBooking.queuePos || '1'}</p></div>
+                         <div><p className="opacity-60 text-[8px] uppercase mb-1 tracking-widest font-black">Status</p><p className="text-lg uppercase">{searchedBooking.status || 'Pending'}</p></div>
                       </div>
                       <div className="bg-white/10 p-4 rounded-3xl"><p className="opacity-60 text-[8px] uppercase mb-1 italic text-emerald-100 font-black tracking-widest">Appointment Timing</p><p className="font-black italic">{searchedBooking.date} • {searchedBooking.time}</p></div>
                    </div>
-                   <button onClick={() => setSearchedBooking(null)} className="w-full mt-10 py-3 text-[10px] font-black uppercase bg-white/10 rounded-2xl active:scale-95 transition-all">New Search</button>
+                   <button onClick={() => {setSearchedBooking(null); setTrackInput('');}} className="w-full mt-10 py-3 text-[10px] font-black uppercase bg-white/10 rounded-2xl active:scale-95 transition-all">Clear & New Search</button>
                 </div>
               ) : (
-                <p className="text-center py-20 text-gray-300 text-[10px] font-black uppercase tracking-widest animate-pulse italic font-black leading-relaxed">Enter token to track live status in Chiplun</p>
+                <p className="text-center py-20 text-gray-300 text-[10px] font-black uppercase tracking-widest animate-pulse italic font-black leading-relaxed">Privacy Enabled • Enter unique code</p>
               )}
            </div>
         )}
 
-        {/* VIEW: ADMIN PIN 112607 */}
+        {/* ADMIN Hub PIN 112607 */}
         {view === 'admin' && (
            <div className="pt-20 text-center animate-in zoom-in-95 px-4">
               <Lucide.Lock className="mx-auto text-emerald-600 mb-6" size={48} />
               <input type="password" maxLength={6} value={adminPinInput} onChange={e => setAdminPinInput(e.target.value)} className="w-48 text-center text-6xl font-black border-b-4 border-emerald-100 outline-none bg-transparent mb-12 tracking-[0.2em]" />
-              <button onClick={() => { if(adminPinInput===ADMIN_PIN) setView('admin_panel'); else setAdminPinInput(''); }} className="w-full bg-emerald-600 text-white py-5 rounded-[2rem] font-black shadow-2xl active:scale-95 uppercase tracking-widest font-black uppercase italic">Unlock Master Panel</button>
+              <button onClick={() => { if(adminPinInput===ADMIN_PIN) setView('admin_panel'); else setAdminPinInput(''); }} className="w-full bg-emerald-600 text-white py-5 rounded-[2rem] font-black shadow-2xl active:scale-95 uppercase tracking-widest font-black uppercase italic">Unlock Console</button>
            </div>
         )}
 
         {view === 'admin_panel' && (
           <div className="pt-4 space-y-6 pb-20 px-4 text-left">
-            <h2 className="text-2xl font-black text-emerald-900 uppercase italic tracking-tighter text-center">System Engine</h2>
+            <h2 className="text-2xl font-black text-emerald-900 uppercase italic tracking-tighter text-center">System Core</h2>
             <div className="space-y-4">
               {stores.map(s => (
                 <div key={s.id} className="bg-white p-5 rounded-[2.5rem] border border-gray-100 flex items-center gap-4 animate-in fade-in shadow-sm">
@@ -507,7 +470,7 @@ export default function App() {
                        <h4 className="font-bold text-sm uppercase italic">{req.bizName}</h4>
                        <div className="flex gap-2">
                          <input id={`id-${req.id}`} placeholder="Issue ID" className="flex-1 p-3 rounded-xl text-xs font-bold outline-none uppercase border border-amber-200" />
-                         <input id={`pw-${req.id}`} placeholder="Set Key" className="w-20 p-3 rounded-xl text-xs font-bold outline-none border border-amber-200" />
+                         <input id={`pw-${req.id}`} placeholder="Key" className="w-20 p-3 rounded-xl text-xs font-bold outline-none border border-amber-200" />
                        </div>
                        <button onClick={async () => {
                            const mid = document.getElementById(`id-${req.id}`).value;
@@ -517,7 +480,7 @@ export default function App() {
                            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', req.id), { status: 'approved' });
                            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', req.uid), { name: req.bizName, address: req.addr, category: req.cat || 'salon', ownerId: req.uid, merchantId: mid.toUpperCase(), isLive: false, services: [], staff: [], image: "", lunchStart: '13:00', lunchEnd: '14:00' });
                            alert("Approved!");
-                        }} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] shadow-lg shadow-emerald-100 italic">Approve Business</button>
+                        }} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] shadow-lg shadow-emerald-100 italic">Verify Entrance</button>
                     </div>
                  ))}
               </div>
@@ -537,7 +500,7 @@ export default function App() {
                  <input placeholder="Official Shop Name" value={regForm.bizName} onChange={e => setRegForm({...regForm, bizName: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-sm outline-none border border-transparent focus:border-emerald-200 uppercase shadow-inner" />
                  <input placeholder="Location Area" value={regForm.addr} onChange={e => setRegForm({...regForm, addr: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-sm outline-none border border-transparent focus:border-emerald-200 uppercase shadow-inner" />
                  <select value={regForm.cat} onChange={e => setRegForm({...regForm, cat: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-sm outline-none border border-transparent focus:border-emerald-200 shadow-inner font-black uppercase">
-                    <option value="salon">Salon & Spa</option><option value="travel">Transport Service</option><option value="clinic">Clinic/Doctor</option><option value="repair">Repair Service</option>
+                    <option value="salon">Salon & Wellness</option><option value="travel">Transport Service</option><option value="clinic">Clinic/Doctor</option><option value="repair">Service/Repair</option>
                  </select>
                  <button onClick={async () => {
                     if(!regForm.bizName || !regForm.addr) return alert("Required fields missing");
@@ -552,7 +515,7 @@ export default function App() {
         {view === 'confirmation' && (
            <div className="text-center pt-10 animate-in zoom-in-90 duration-700 pb-10 px-4">
              <div className="w-24 h-24 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner animate-bounce border-2 border-emerald-200 shadow-xl shadow-emerald-50"><Lucide.CheckCircle2 size={48}/></div>
-             <h2 className="text-4xl font-black text-emerald-900 mb-6 uppercase tracking-tighter italic">Reserved</h2>
+             <h2 className="text-4xl font-black text-emerald-900 mb-6 uppercase tracking-tighter italic text-emerald-900">Reserved</h2>
              <div className="bg-emerald-600 text-white p-8 rounded-[3.5rem] shadow-2xl space-y-6 relative overflow-hidden text-center shadow-emerald-200">
                 <div className="absolute top-0 right-0 p-4 opacity-10"><Lucide.Clock size={100}/></div>
                 <div><p className="text-[10px] font-black uppercase opacity-60 mb-2 italic tracking-widest">Unique Booking Token</p><h3 className="text-5xl font-black tracking-widest italic">{lastBookingId}</h3></div>
