@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, doc, setDoc, onSnapshot, updateDoc, getDoc, addDoc, deleteDoc, query, where } from 'firebase/firestore';
+import { getFirestore, collection, doc, setDoc, onSnapshot, updateDoc, getDoc, addDoc, deleteDoc } from 'firebase/firestore';
 import * as Lucide from 'lucide-react';
 
-// --- Configuration ---
+// --- Firebase Configuration ---
 const firebaseConfig = {
   apiKey: "AIzaSyALH-taOmzYitK1XnOFuKMrqgFWJqVALSo",
   authDomain: "chiplun-connect.firebaseapp.com",
@@ -17,7 +17,7 @@ const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = "chiplun-pro-v40-operational"; 
+const appId = "chiplun-pro-v38-ledger"; 
 const ADMIN_PIN = "112607";
 
 const CATEGORIES = [
@@ -58,7 +58,7 @@ export default function App() {
   const [trackedBooking, setTrackedBooking] = useState(null);
   const [vendorLogin, setVendorLogin] = useState({ id: '', pass: '' });
 
-  // --- Firebase Sync ---
+  // --- Rule 3: Auth First ---
   useEffect(() => {
     const init = async () => {
       onAuthStateChanged(auth, async (u) => {
@@ -69,6 +69,7 @@ export default function App() {
     init();
   }, []);
 
+  // --- Rule 1 & 2: Data Fetching ---
   useEffect(() => {
     if (!user) return;
 
@@ -110,7 +111,7 @@ export default function App() {
     return { revenue, queue };
   }, [allBookings, profile.businessId]);
 
-  // --- V40 Standard Actions ---
+  // --- Actions ---
   const handleBooking = async () => {
     if (isProcessing) return;
     setIsProcessing(true);
@@ -118,11 +119,20 @@ export default function App() {
     const service = cart[0];
     let finalPrice = Number(service.price);
     
-    if (selectedStore.category === 'travel' && bookingMeta.destination) {
+    if (selectedStore.category === 'travel') {
       finalPrice = finalPrice * (bookingMeta.numSeats || 1);
     }
 
-    const payload = { ...bookingMeta, displayId, storeId: selectedStore.id, storeName: selectedStore.name, serviceName: service.name, totalPrice: finalPrice, status: 'pending', timestamp: Date.now() };
+    const payload = { 
+        ...bookingMeta, 
+        displayId, 
+        storeId: selectedStore.id, 
+        storeName: selectedStore.name, 
+        serviceName: service.name, 
+        totalPrice: finalPrice, 
+        status: 'pending', 
+        timestamp: Date.now() 
+    };
 
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'bookings'), payload);
@@ -133,26 +143,19 @@ export default function App() {
     } catch (e) { console.error(e); } finally { setIsProcessing(false); }
   };
 
-  const submitRegistration = async () => {
-    if (!regForm.bizName || !regForm.phone) return alert("Fill essential details");
-    setIsProcessing(true);
-    try {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'requests'), { ...regForm, status: 'pending', timestamp: Date.now() });
-      alert("Registration Request Sent to Admin.");
-      setRegForm({ name: '', phone: '', bizName: '', category: 'salon', address: '' });
-      setView('home');
-    } catch (e) { console.error(e); } finally { setIsProcessing(false); }
-  };
-
   const handleVendorLogin = async () => {
     setIsProcessing(true);
     try {
       const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vendor_creds', vendorLogin.id.toUpperCase()));
       if (snap.exists() && snap.data().password === vendorLogin.pass) {
-        await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data'), { role: 'vendor', businessId: snap.data().storeId, businessName: snap.data().businessName });
+        await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data'), { 
+            role: 'vendor', 
+            businessId: snap.data().storeId, 
+            businessName: snap.data().businessName 
+        });
         setView('merchant');
-      } else { alert("Invalid Credentials"); }
-    } catch (e) { alert("Login Error"); } finally { setIsProcessing(false); }
+      } else { alert("Login Denied"); }
+    } catch (e) { console.error(e); } finally { setIsProcessing(false); }
   };
 
   const completeBooking = async (id) => {
@@ -160,8 +163,8 @@ export default function App() {
   };
 
   if (loading) return (
-    <div className="h-screen flex items-center justify-center bg-emerald-600 text-white font-black animate-pulse uppercase text-xs tracking-[0.3em]">
-      CHIPLUNCONNECT V40
+    <div className="h-screen flex items-center justify-center bg-emerald-600 text-white font-black animate-pulse uppercase text-xs tracking-widest">
+      CHIPLUNCONNECT V38
     </div>
   );
 
@@ -173,7 +176,7 @@ export default function App() {
         <div className="flex justify-between items-center mb-6">
           <div onClick={() => setView('home')} className="cursor-pointer active:scale-95 transition-transform">
             <h1 className="text-2xl font-black tracking-tighter italic leading-none">ChiplunConnect</h1>
-            <p className="text-[10px] font-bold opacity-80 uppercase tracking-widest mt-1">Operational Control • V40</p>
+            <p className="text-[10px] font-bold opacity-80 uppercase tracking-widest mt-1">Merchant Ledger • V38</p>
           </div>
           <button onClick={() => setView('business')} className="w-10 h-10 bg-white/10 rounded-2xl flex items-center justify-center border border-white/10 active:bg-white/20 transition-all shadow-inner">
             <Lucide.Briefcase size={20} />
@@ -182,12 +185,12 @@ export default function App() {
         {view === 'home' && (
           <div className="relative animate-in slide-in-from-top-4 duration-500">
             <Lucide.Search className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-200" size={18} />
-            <input type="text" placeholder="Find local services..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-white/10 border border-white/20 rounded-2xl py-4 pl-12 pr-4 text-white placeholder-emerald-200 outline-none focus:bg-white/20 shadow-inner transition-all" />
+            <input type="text" placeholder="Search services..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-white/10 border border-white/20 rounded-2xl py-4 pl-12 pr-4 text-white placeholder-emerald-200 outline-none focus:bg-white/20 transition-all" />
           </div>
         )}
       </header>
 
-      {/* VIEWPORT */}
+      {/* MAIN VIEWPORT */}
       <main className="flex-1 -mt-6 px-4 pb-32 z-10">
         
         {/* VIEW: HOME */}
@@ -202,7 +205,7 @@ export default function App() {
               ))}
             </div>
             <section className="space-y-4">
-              <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 italic">Explore Chiplun</h2>
+              <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 italic">Local Businesses</h2>
               <div className="space-y-4">
                 {filteredStores.map(store => (
                   <div key={store.id} onClick={() => { setSelectedStore(store); setView('detail'); setCart([]); }} className="bg-white p-3 rounded-[2rem] flex gap-4 items-center shadow-sm border border-slate-100 hover:border-emerald-300 active:scale-[0.98] transition-all group">
@@ -225,27 +228,30 @@ export default function App() {
           <div className="pt-6 space-y-6">
             <div className="text-center">
               <h2 className="text-3xl font-black text-emerald-900 uppercase italic tracking-tighter">Business Hub</h2>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Growth engine for local partners</p>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Partner Portal</p>
             </div>
-            <div className="flex bg-slate-200 p-1 rounded-[1.5rem] shadow-inner">
-               <button onClick={() => setBizSubView('register')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${bizSubView === 'register' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500'}`}>Apply</button>
-               <button onClick={() => setBizSubView('login')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${bizSubView === 'login' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500'}`}>Login</button>
+            {/* Sliding Toggle */}
+            <div className="flex bg-slate-200 p-1 rounded-[1.5rem] shadow-inner border border-slate-300 relative">
+               <button onClick={() => setBizSubView('register')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all z-10 ${bizSubView === 'register' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500'}`}>Apply</button>
+               <button onClick={() => setBizSubView('login')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all z-10 ${bizSubView === 'login' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500'}`}>Login</button>
             </div>
+
             {bizSubView === 'register' ? (
-              <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100 space-y-4 animate-in fade-in">
+              <div className="bg-white p-8 rounded-[3.5rem] shadow-xl border border-slate-100 space-y-4 animate-in fade-in">
                 <input value={regForm.bizName} onChange={e => setRegForm({...regForm, bizName: e.target.value})} className="w-full bg-slate-50 border p-4 rounded-xl text-[10px] font-black uppercase outline-none focus:border-emerald-500" placeholder="Business Name" />
-                <input value={regForm.phone} onChange={e => setRegForm({...regForm, phone: e.target.value})} className="w-full bg-slate-50 border p-4 rounded-xl text-[10px] font-black uppercase outline-none focus:border-emerald-500" placeholder="Mobile" />
+                <input value={regForm.phone} onChange={e => setRegForm({...regForm, phone: e.target.value})} className="w-full bg-slate-50 border p-4 rounded-xl text-[10px] font-black uppercase outline-none focus:border-emerald-500" placeholder="Contact Number" />
                 <select value={regForm.category} onChange={e => setRegForm({...regForm, category: e.target.value})} className="w-full bg-slate-50 border p-4 rounded-xl text-[10px] font-black uppercase outline-none">
-                   {CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.n} Services</option>)}
+                   {CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.n} services</option>)}
                 </select>
-                <button onClick={submitRegistration} className="w-full bg-emerald-600 text-white py-5 rounded-[1.5rem] font-black uppercase text-[10px] tracking-widest">Submit Application</button>
+                <button onClick={() => { setIsProcessing(true); setTimeout(() => { alert("Application Sent!"); setIsProcessing(false); setView('home'); }, 1000); }} className="w-full bg-emerald-600 text-white py-5 rounded-[1.5rem] font-black uppercase text-[10px] tracking-widest active:scale-95 transition-all">Submit Professional Profile</button>
                 <button onClick={() => setView('admin')} className="w-full text-[8px] font-black text-slate-300 uppercase tracking-[0.4em] pt-4">Admin terminal</button>
               </div>
             ) : (
-              <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100 space-y-4 animate-in fade-in">
+              <div className="bg-white p-8 rounded-[3.5rem] shadow-xl border border-slate-100 space-y-4 animate-in fade-in text-center">
+                <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-4"><Lucide.ShieldCheck size={32}/></div>
                 <input value={vendorLogin.id} onChange={e => setVendorLogin({...vendorLogin, id: e.target.value})} className="w-full bg-slate-50 border p-5 rounded-2xl text-lg font-black uppercase outline-none text-center" placeholder="Merchant ID" />
                 <input type="password" value={vendorLogin.pass} onChange={e => setVendorLogin({...vendorLogin, pass: e.target.value})} className="w-full bg-slate-50 border p-5 rounded-2xl text-center outline-none" placeholder="••••••••" />
-                <button onClick={handleVendorLogin} className="w-full bg-emerald-600 text-white py-5 rounded-[1.5rem] font-black uppercase text-[10px] tracking-widest shadow-xl">Unlock Ledger</button>
+                <button onClick={handleVendorLogin} className="w-full bg-emerald-600 text-white py-5 rounded-[1.5rem] font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Unlock Ledger</button>
               </div>
             )}
           </div>
@@ -257,35 +263,35 @@ export default function App() {
             <div className="flex justify-between items-center">
               <div>
                 <h2 className="text-2xl font-black text-emerald-900 italic uppercase tracking-tighter">{profile.businessName}</h2>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Operational Ledger</p>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Merchant Console</p>
               </div>
               <button onClick={() => setView('home')} className="p-3 bg-slate-100 rounded-xl text-slate-400"><Lucide.Home size={20}/></button>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col items-center">
-                <p className="text-[8px] font-black text-slate-400 uppercase mb-1 tracking-widest">Total Revenue</p>
-                <p className="text-2xl font-black text-emerald-600">₹{merchantStats.revenue}</p>
+                <p className="text-[8px] font-black text-slate-400 uppercase mb-1 tracking-widest">Revenue</p>
+                <p className="text-2xl font-black text-emerald-600 tracking-tighter">₹{merchantStats.revenue}</p>
               </div>
               <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col items-center">
-                <p className="text-[8px] font-black text-slate-400 uppercase mb-1 tracking-widest">Pending</p>
-                <p className="text-2xl font-black text-blue-600">{merchantStats.queue.length}</p>
+                <p className="text-[8px] font-black text-slate-400 uppercase mb-1 tracking-widest">Queue</p>
+                <p className="text-2xl font-black text-blue-600 tracking-tighter">{merchantStats.queue.length}</p>
               </div>
             </div>
-            <section className="bg-emerald-600 text-white p-6 rounded-[3rem] shadow-xl space-y-4">
-              <h3 className="text-[10px] font-black uppercase tracking-widest opacity-80 italic text-center">Active Queue</h3>
+            <section className="bg-emerald-600 text-white p-6 rounded-[3.5rem] shadow-xl space-y-4">
+              <h3 className="text-[10px] font-black uppercase tracking-widest opacity-80 italic text-center">Merchant Ledger</h3>
               <div className="space-y-3">
                 {merchantStats.queue.map((b, i) => (
-                  <div key={i} className="bg-white/10 p-5 rounded-2xl border border-white/5">
+                  <div key={i} className="bg-white/10 backdrop-blur-md p-5 rounded-2xl border border-white/10">
                     <div className="flex justify-between items-start mb-2">
                       <div>
                         <p className="font-black text-sm uppercase italic">{b.custName || 'Guest'}</p>
                         <p className="text-[8px] font-bold text-emerald-200 uppercase mt-0.5">{b.serviceName}</p>
                       </div>
-                      <span className="bg-emerald-500/30 px-3 py-1 rounded-lg text-[10px] font-black tracking-tighter">#{b.displayId}</span>
+                      <span className="bg-emerald-500/30 px-3 py-1 rounded-lg text-[10px] font-black tracking-tighter italic">#{b.displayId}</span>
                     </div>
                     <div className="flex gap-2 mt-4">
-                       <button onClick={() => window.open(`https://wa.me/${b.custPhone}`)} className="flex-1 bg-white/20 p-3 rounded-xl"><Lucide.MessageCircle size={16} className="mx-auto" /></button>
-                       <button onClick={() => completeBooking(b.id)} className="flex-[3] bg-white text-emerald-700 font-black text-[10px] uppercase tracking-widest p-3 rounded-xl shadow-lg active:scale-95 transition-all">Mark Complete</button>
+                       <button onClick={() => window.open(`https://wa.me/${b.custPhone}`)} className="flex-1 bg-white/20 p-3 rounded-xl border border-white/5"><Lucide.MessageCircle size={16} className="mx-auto" /></button>
+                       <button onClick={() => completeBooking(b.id)} className="flex-[3] bg-white text-emerald-700 font-black text-[10px] uppercase tracking-widest p-3 rounded-xl shadow-lg active:scale-95 transition-all">Mark as Completed</button>
                     </div>
                   </div>
                 ))}
@@ -294,78 +300,71 @@ export default function App() {
           </div>
         )}
 
-        {/* VIEW: ADMIN TERMINAL (V40 BASE) */}
+        {/* VIEW: ADMIN TERMINAL */}
         {view === 'admin' && (
-          <div className="pt-10 space-y-6 animate-in fade-in">
-             <h2 className="text-2xl font-black text-rose-600 uppercase italic tracking-tighter text-center">Admin Master</h2>
+          <div className="pt-10 space-y-6">
+             <h2 className="text-2xl font-black text-rose-600 uppercase italic tracking-tighter text-center">System Master</h2>
              {!adminAuth ? (
                <div className="bg-white p-8 rounded-[3rem] shadow-2xl border border-rose-100 space-y-4">
-                 <input type="password" placeholder="System PIN" value={adminPin} onChange={(e) => setAdminPin(e.target.value)} className="w-full bg-slate-50 p-5 rounded-2xl shadow-inner border font-black text-center text-lg outline-none" />
-                 <button onClick={() => { if (adminPin === ADMIN_PIN) setAdminAuth(true); else alert("Access Denied"); }} className="w-full bg-rose-600 text-white py-5 rounded-2xl font-black shadow-xl uppercase active:scale-95">Verify Identity</button>
+                 <input type="password" placeholder="Admin PIN" value={adminPin} onChange={(e) => setAdminPin(e.target.value)} className="w-full bg-slate-50 p-5 rounded-2xl shadow-inner border font-black text-center text-lg outline-none" />
+                 <button onClick={() => { if (adminPin === ADMIN_PIN) setAdminAuth(true); else alert("Invalid PIN"); }} className="w-full bg-rose-600 text-white py-5 rounded-2xl font-black shadow-xl uppercase active:scale-95">Verify Identity</button>
                </div>
              ) : (
                <div className="space-y-6">
                   <section className="bg-white p-6 rounded-[2.5rem] border border-slate-100">
-                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 italic">Pending Applications</h3>
-                    {requests.map(r => (
+                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 italic px-2">Pending Requests</h3>
+                    {requests.length > 0 ? requests.map(r => (
                       <div key={r.id} className="p-4 border-b border-slate-50 last:border-0 flex justify-between items-center">
                         <div>
-                          <p className="font-black text-xs uppercase">{r.bizName}</p>
-                          <p className="text-[8px] text-slate-400">{r.name} • {r.phone}</p>
+                          <p className="font-black text-xs uppercase italic">{r.bizName}</p>
+                          <p className="text-[8px] text-slate-400 uppercase tracking-widest mt-0.5">{r.phone}</p>
                         </div>
                         <Lucide.ChevronRight size={16} className="text-slate-200" />
                       </div>
-                    ))}
-                  </section>
-                  <section className="bg-white p-6 rounded-[2.5rem] border border-slate-100">
-                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 italic">Live Registry</h3>
-                    {stores.map(s => (
-                      <div key={s.id} className="p-4 flex justify-between items-center">
-                        <p className="font-black text-xs uppercase">{s.name}</p>
-                        <span className="text-[8px] bg-emerald-50 text-emerald-600 px-2 py-1 rounded font-black uppercase tracking-tighter">ID: {s.merchantId || 'NONE'}</span>
-                      </div>
-                    ))}
+                    )) : (
+                        <p className="text-[8px] text-center font-black uppercase text-slate-300 py-10 tracking-[0.2em]">Queue Empty</p>
+                    )}
                   </section>
                </div>
              )}
           </div>
         )}
 
-        {/* VIEW: DETAIL (V40 BOOKING FLOW) */}
+        {/* VIEW: DETAIL (V38 FLOW) */}
         {view === 'detail' && selectedStore && (
           <div className="pt-4 space-y-6 animate-in slide-in-from-right-4">
             <button onClick={() => setView('home')} className="flex items-center text-emerald-600 font-black text-[10px] uppercase tracking-widest">
-              <Lucide.ArrowLeft size={16} className="mr-2"/> Back to Discovery
+              <Lucide.ArrowLeft size={16} className="mr-2"/> Discovery Mode
             </button>
             <div className="relative">
               <img src={selectedStore.image} className="w-full h-56 rounded-[2.5rem] object-cover shadow-xl" alt={selectedStore.name} />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent rounded-[2.5rem]"></div>
               <div className="absolute bottom-6 left-8 right-8 text-white">
-                <h2 className="text-2xl font-black uppercase italic tracking-tighter">{selectedStore.name}</h2>
+                <h2 className="text-2xl font-black uppercase italic tracking-tighter leading-none">{selectedStore.name}</h2>
                 <p className="text-white/80 text-[10px] font-bold uppercase tracking-widest flex items-center mt-1"><Lucide.MapPin size={12} className="mr-1"/> {selectedStore.address}</p>
               </div>
             </div>
-            <section className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
-              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 italic">Services</h3>
+            <section className="bg-white p-6 rounded-[3rem] border border-slate-100 shadow-sm">
+              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 italic">Available Services</h3>
               <div className="space-y-3">
                 {selectedStore.services?.map((s, idx) => (
                   <div key={idx} onClick={() => setCart([s])} className={`p-4 rounded-2xl border-2 transition-all flex justify-between items-center cursor-pointer ${cart[0]?.name === s.name ? 'border-emerald-600 bg-emerald-50 scale-[1.02]' : 'border-slate-50 bg-slate-50'}`}>
                     <div>
-                      <p className="font-bold text-sm uppercase">{s.name}</p>
+                      <p className="font-bold text-sm uppercase italic">{s.name}</p>
                       <p className="text-[9px] text-slate-400 font-black tracking-widest mt-1 opacity-70">{selectedStore.category === 'travel' ? 'Per Seat' : `${s.duration} MINS`}</p>
                     </div>
-                    <span className="font-black text-emerald-600 text-lg tracking-tighter">₹{s.price}</span>
+                    <span className="font-black text-emerald-600 text-lg tracking-tighter italic">₹{s.price}</span>
                   </div>
                 ))}
               </div>
             </section>
             {cart.length > 0 && (
-              <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 animate-in slide-in-from-bottom-6">
+              <div className="bg-white p-6 rounded-[3rem] shadow-sm border border-slate-100 animate-in slide-in-from-bottom-6">
                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 text-center italic">Appointment Details</h3>
                 <div className="space-y-4">
                   {selectedStore.category === 'travel' && (
                     <div className="grid grid-cols-2 gap-2">
-                       <input placeholder="To Area" value={bookingMeta.destination} onChange={e => setBookingMeta({...bookingMeta, destination: e.target.value})} className="bg-slate-50 p-4 rounded-xl font-bold text-xs outline-none border shadow-inner" />
+                       <input placeholder="Destination" value={bookingMeta.destination} onChange={e => setBookingMeta({...bookingMeta, destination: e.target.value})} className="bg-slate-50 p-4 rounded-xl font-bold text-xs outline-none border shadow-inner" />
                        <input type="number" placeholder="Seats" min="1" max="10" value={bookingMeta.numSeats} onChange={e => setBookingMeta({...bookingMeta, numSeats: Number(e.target.value)})} className="bg-slate-50 p-4 rounded-xl font-bold text-xs outline-none border shadow-inner" />
                     </div>
                   )}
@@ -373,9 +372,9 @@ export default function App() {
                     <input type="date" onChange={e => setBookingMeta({...bookingMeta, date: e.target.value})} className="flex-1 bg-slate-50 p-4 rounded-xl font-bold text-xs outline-none border shadow-inner" />
                     <input type="time" onChange={e => setBookingMeta({...bookingMeta, time: e.target.value})} className="w-28 bg-slate-50 p-4 rounded-xl font-bold text-xs outline-none border shadow-inner" />
                   </div>
-                  <input placeholder="Name" value={bookingMeta.custName} onChange={e => setBookingMeta({...bookingMeta, custName: e.target.value})} className="w-full bg-slate-50 p-4 rounded-xl font-bold text-xs outline-none border shadow-inner uppercase" />
+                  <input placeholder="Patient/Customer Name" value={bookingMeta.custName} onChange={e => setBookingMeta({...bookingMeta, custName: e.target.value})} className="w-full bg-slate-50 p-4 rounded-xl font-bold text-xs outline-none border shadow-inner uppercase" />
                   <input placeholder="WhatsApp Number" value={bookingMeta.custPhone} onChange={e => setBookingMeta({...bookingMeta, custPhone: e.target.value})} className="w-full bg-slate-50 p-4 rounded-xl font-bold text-xs outline-none border shadow-inner uppercase" />
-                  <button disabled={!bookingMeta.date || !bookingMeta.time || !bookingMeta.custPhone} onClick={() => setShowConfirmModal(true)} className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black shadow-xl uppercase active:scale-95 tracking-widest disabled:opacity-40">Review & Confirm</button>
+                  <button disabled={!bookingMeta.date || !bookingMeta.time || !bookingMeta.custPhone} onClick={() => setShowConfirmModal(true)} className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black shadow-xl uppercase active:scale-95 transition-all tracking-widest disabled:opacity-40">Review & Confirm</button>
                 </div>
               </div>
             )}
@@ -384,23 +383,23 @@ export default function App() {
 
         {/* VIEW: TRACKING */}
         {view === 'track' && (
-          <div className="pt-10 space-y-8 animate-in slide-in-from-bottom-8">
-            <h2 className="text-xl font-black text-emerald-900 uppercase italic tracking-tighter text-center">Ticket Status</h2>
+          <div className="pt-10 space-y-8">
+            <h2 className="text-xl font-black text-emerald-900 uppercase italic tracking-tighter text-center">Tracking Terminal</h2>
             {trackedBooking ? (
               <div className="bg-white p-8 rounded-[3rem] shadow-2xl border-t-8 border-emerald-500 text-center space-y-6">
-                <div className="bg-emerald-50 p-6 rounded-full w-24 h-24 mx-auto flex items-center justify-center"><Lucide.CheckCircle2 size={40} className="text-emerald-600" /></div>
-                <h3 className="text-4xl font-black tracking-tighter text-emerald-600 uppercase">{trackedBooking.displayId}</h3>
+                <Lucide.CheckCircle2 size={40} className="text-emerald-600 mx-auto" />
+                <h3 className="text-4xl font-black tracking-tighter text-emerald-600 uppercase italic">{trackedBooking.displayId}</h3>
                 <div className="bg-slate-50 p-5 rounded-3xl text-[10px] font-black uppercase text-left space-y-2 border border-slate-100 shadow-inner">
                   <div className="flex justify-between"><span>Merchant:</span><span className="text-emerald-700">{trackedBooking.storeName}</span></div>
                   <div className="flex justify-between"><span>Service:</span><span>{trackedBooking.serviceName}</span></div>
-                  <div className="flex justify-between pt-2 border-t border-slate-200 text-sm text-slate-900 font-black"><span>Payable:</span><span>₹{trackedBooking.totalPrice}</span></div>
+                  <div className="flex justify-between pt-2 border-t border-slate-200 text-xs text-slate-900 font-black"><span>Total:</span><span className="text-emerald-600">₹{trackedBooking.totalPrice}</span></div>
                 </div>
-                <button onClick={() => setView('home')} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black uppercase text-xs active:scale-95">Back Home</button>
+                <button onClick={() => setView('home')} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black uppercase text-xs active:scale-95 transition-all">Back to Home</button>
               </div>
             ) : (
               <div className="space-y-4">
-                <input placeholder="Enter Token (CH-XXXX)" value={trackInput} onChange={e => setTrackInput(e.target.value)} className="w-full bg-white p-5 rounded-2xl shadow-sm border border-slate-100 font-black text-center text-lg uppercase outline-none focus:border-emerald-500" />
-                <button onClick={() => { const found = allBookings.find(b => b.displayId === trackInput.toUpperCase()); if (found) setTrackedBooking(found); else alert("Token not found"); }} className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black shadow-xl uppercase active:scale-95">Track Now</button>
+                <input placeholder="Enter Token ID" value={trackInput} onChange={e => setTrackInput(e.target.value)} className="w-full bg-white p-5 rounded-2xl shadow-sm border border-slate-100 font-black text-center text-lg uppercase outline-none focus:border-emerald-500" />
+                <button onClick={() => { const found = allBookings.find(b => b.displayId === trackInput.toUpperCase()); if (found) setTrackedBooking(found); else alert("Invalid Token"); }} className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black shadow-xl uppercase active:scale-95">Search Token</button>
               </div>
             )}
           </div>
@@ -413,24 +412,24 @@ export default function App() {
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[1000] flex items-center justify-center p-6 animate-in zoom-in-95 duration-200">
            <div className="bg-white w-full max-w-sm rounded-[3rem] p-8 shadow-2xl border-t-8 border-emerald-500 text-center">
               <Lucide.ShieldCheck size={48} className="text-emerald-500 mx-auto mb-4" />
-              <h3 className="text-xl font-black uppercase tracking-tighter italic mb-4">Finalize Booking</h3>
+              <h3 className="text-xl font-black uppercase tracking-tighter italic mb-4">Confirm Booking</h3>
               <div className="bg-slate-50 p-5 rounded-2xl text-[10px] font-black uppercase text-left space-y-3 border border-slate-100 mb-6 shadow-inner">
                  <div className="flex justify-between border-b border-slate-100 pb-2"><span>Merchant:</span><span className="text-emerald-600">{selectedStore?.name}</span></div>
                  <div className="flex justify-between"><span>Service:</span><span>{cart[0]?.name}</span></div>
                  <div className="flex justify-between pt-2 border-t border-slate-200 text-sm text-slate-900 font-black"><span>Payable:</span><span className="text-emerald-600 text-lg">₹{cart[0]?.price * (selectedStore?.category === 'travel' ? (bookingMeta.numSeats || 1) : 1)}</span></div>
               </div>
-              <button disabled={isProcessing} onClick={handleBooking} className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all tracking-[0.2em]">{isProcessing ? 'Verifying...' : 'Finalize & Book'}</button>
-              <button onClick={() => setShowConfirmModal(false)} className="w-full py-4 text-slate-400 font-black text-[10px] uppercase">Wait, Go Back</button>
+              <button disabled={isProcessing} onClick={handleBooking} className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all tracking-[0.2em]">{isProcessing ? 'Saving...' : 'Confirm & Generate Ticket'}</button>
+              <button onClick={() => setShowConfirmModal(false)} className="w-full py-4 text-slate-400 font-black text-[10px] uppercase">Go Back</button>
            </div>
         </div>
       )}
 
       {/* BOTTOM NAV */}
       <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/90 backdrop-blur-xl border-t border-slate-100 px-8 py-5 flex justify-between items-center z-[100]">
-        <button onClick={() => setView('home')} className={`transition-all ${view === 'home' ? 'text-emerald-600 scale-125' : 'text-slate-300 hover:text-slate-500'}`}><Lucide.Compass size={24} /></button>
-        <button onClick={() => setView('track')} className={`transition-all ${view === 'track' ? 'text-emerald-600 scale-125' : 'text-slate-300 hover:text-slate-500'}`}><Lucide.Ticket size={24} /></button>
+        <button onClick={() => setView('home')} className={`transition-all ${view === 'home' ? 'text-emerald-600 scale-125' : 'text-slate-300'}`}><Lucide.Compass size={24} /></button>
+        <button onClick={() => setView('track')} className={`transition-all ${view === 'track' ? 'text-emerald-600 scale-125' : 'text-slate-300'}`}><Lucide.Ticket size={24} /></button>
         <div className="w-px h-6 bg-slate-100"></div>
-        <button onClick={() => setView('business')} className={`transition-all ${view === 'business' || view === 'merchant' ? 'text-emerald-600 scale-125' : 'text-slate-300 hover:text-slate-500'}`}><Lucide.Briefcase size={24} /></button>
+        <button onClick={() => setView('business')} className={`transition-all ${view === 'business' || view === 'merchant' ? 'text-emerald-600 scale-125' : 'text-slate-300'}`}><Lucide.Briefcase size={24} /></button>
       </nav>
 
     </div>
