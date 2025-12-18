@@ -1,25 +1,19 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { initializeApp, getApps } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, collection, doc, setDoc, onSnapshot, updateDoc, getDoc, addDoc, deleteDoc } from 'firebase/firestore';
 import * as Lucide from 'lucide-react';
 
 // --- Configuration & Initialization ---
-const firebaseConfig = {
-  apiKey: "", // Injected by environment
-  authDomain: "chiplun-connect.firebaseapp.com",
-  projectId: "chiplun-connect",
-  storageBucket: "chiplun-connect.firebasestorage.app",
-  messagingSenderId: "861830187280",
-  appId: "1:861830187280:web:504064454581cdeb84bd95"
-};
+// Fixed: Use environment provided config to prevent API Key errors
+const firebaseConfig = JSON.parse(__firebase_config);
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// Use the exact App ID and PIN from the V50 Specs
-const APP_ID = "chiplun-pro-v50-supreme"; 
+// Use environment App ID for strict path compliance, fallback to V50 ID if undefined
+const APP_ID = typeof __app_id !== 'undefined' ? __app_id : "chiplun-pro-v50-supreme";
 const ADMIN_PIN = "112607";
 
 const CATEGORIES = [
@@ -107,16 +101,20 @@ export default function App() {
 
   // --- Firebase Sync ---
   useEffect(() => {
-    const init = async () => {
-      onAuthStateChanged(auth, async (u) => {
-        if (!u) {
-          await signInAnonymously(auth);
-        } else {
-          setUser(u);
-        }
-      });
+    const initAuth = async () => {
+      // Prioritize custom token if available (Environment provided)
+      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+        await signInWithCustomToken(auth, __initial_auth_token);
+      } else {
+        await signInAnonymously(auth);
+      }
     };
-    init();
+    initAuth();
+    
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+    });
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -135,10 +133,10 @@ export default function App() {
         if (snap.exists()) setProfile(snap.data());
         else setDoc(paths.profile, { role: 'customer', uid: user.uid });
         setLoading(false);
-      }),
-      onSnapshot(paths.stores, (s) => setStores(s.docs.map(d => ({ id: d.id, ...d.data() })))),
-      onSnapshot(paths.bookings, (s) => setAllBookings(s.docs.map(d => ({ id: d.id, ...d.data() })))),
-      onSnapshot(paths.requests, (s) => setRequests(s.docs.map(d => ({ id: d.id, ...d.data() }))))
+      }, (error) => console.error("Profile sync error:", error)),
+      onSnapshot(paths.stores, (s) => setStores(s.docs.map(d => ({ id: d.id, ...d.data() }))), (e) => console.error("Stores sync error:", e)),
+      onSnapshot(paths.bookings, (s) => setAllBookings(s.docs.map(d => ({ id: d.id, ...d.data() }))), (e) => console.error("Bookings sync error:", e)),
+      onSnapshot(paths.requests, (s) => setRequests(s.docs.map(d => ({ id: d.id, ...d.data() }))), (e) => console.error("Requests sync error:", e))
     ];
 
     return () => unsubs.forEach(fn => fn());
