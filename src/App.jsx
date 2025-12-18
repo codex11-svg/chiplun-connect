@@ -17,7 +17,7 @@ const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = "chiplun-pro-v42-master"; 
+const appId = "chiplun-pro-v43-master"; 
 const ADMIN_PIN = "112607";
 
 export default function App() {
@@ -28,13 +28,13 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSessionVerified, setIsSessionVerified] = useState(false);
   
-  // Enterprise Data Registry
+  // Data Registry
   const [stores, setStores] = useState([]);
   const [allBookings, setAllBookings] = useState([]);
   const [requests, setRequests] = useState([]);
   const [myBookings, setMyBookings] = useState([]); 
   
-  // UI Interaction States
+  // Interaction Engine
   const [searchQuery, setSearchQuery] = useState('');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -60,7 +60,7 @@ export default function App() {
   const [newStaff, setNewStaff] = useState('');
   const [editForm, setEditForm] = useState({ name: '', address: '', image: '', category: 'salon', lunchStart: '13:00', lunchEnd: '14:00' });
 
-  // --- Real-time Core ---
+  // --- Real-time Enterprise Sync ---
   useEffect(() => {
     onAuthStateChanged(auth, async (u) => {
       if (!u) await signInAnonymously(auth);
@@ -84,7 +84,7 @@ export default function App() {
     return () => unsubs.forEach(fn => fn());
   }, [user]);
 
-  // Derived Intelligence
+  // Derived Logic
   const myStore = useMemo(() => stores.find(s => s.id === profile.businessId), [stores, profile.businessId]);
   const merchantBookings = useMemo(() => profile.businessId ? allBookings.filter(b => b.storeId === profile.businessId && b.status !== 'completed') : [], [allBookings, profile.businessId]);
   const todayRevenue = useMemo(() => profile.businessId ? allBookings.filter(b => b.storeId === profile.businessId && b.status === 'completed').reduce((a, b) => a + (Number(b.totalPrice) || 0), 0) : 0, [allBookings, profile.businessId]);
@@ -101,13 +101,8 @@ export default function App() {
     if (!store.isLive) return { label: 'Closed', color: 'bg-rose-500', icon: <Lucide.XCircle size={10}/> };
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    if (store.lunchStart && store.lunchEnd && timeStr >= store.lunchStart && timeStr <= store.lunchEnd) return { label: 'On Lunch', color: 'bg-amber-500', icon: <Lucide.Coffee size={10}/> };
+    if (store.lunchStart && store.lunchEnd && timeStr >= store.lunchStart && timeStr <= store.lunchEnd) return { label: 'Lunch Break', color: 'bg-amber-500', icon: <Lucide.Coffee size={10}/> };
     return { label: 'Open Now', color: 'bg-emerald-500', icon: <Lucide.CheckCircle2 size={10}/> };
-  };
-
-  const isSpecialistBusy = (name, date, time) => {
-    if (!date || !time || !name) return false;
-    return allBookings.some(b => b.storeId === selectedStore?.id && b.resourceName === name && b.date === date && b.time === time && b.status !== 'completed');
   };
 
   const handleFinalConfirm = async () => {
@@ -124,21 +119,20 @@ export default function App() {
     const payload = { ...bookingMeta, displayId: token, services: cart, totalPrice: cart.reduce((a, b) => a + Number(b.price), 0), queuePos: pos, estWait: delay, status: 'pending', storeId: selectedStore.id, storeName: selectedStore.name, timestamp: Date.now() };
 
     try {
-      const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'bookings'), payload);
-      await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'bookings'), { ...payload, globalId: docRef.id });
+      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'bookings'), payload);
+      await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'bookings'), payload);
       setLastBookingId(token);
       setQueueInfo({ pos, delay });
       setIsProcessing(false);
       setView('confirmation');
-    } catch (e) { alert("Network Error"); setIsProcessing(false); }
+    } catch (e) { alert("Error"); setIsProcessing(false); }
   };
 
   const handleTrackToken = () => {
     if (!trackInput) return;
-    const cleanToken = trackInput.trim().toUpperCase();
-    const found = allBookings.find(b => b.displayId?.toUpperCase() === cleanToken);
+    const found = allBookings.find(b => b.displayId?.toUpperCase() === trackInput.trim().toUpperCase());
     if (found) setSearchedBooking(found);
-    else alert("Token not found.");
+    else alert("Invalid ID");
   };
 
   const handleVendorLogin = async () => {
@@ -150,33 +144,33 @@ export default function App() {
         role: 'vendor', status: 'approved', businessId: snap.data().storeId, businessName: snap.data().businessName
       });
       setIsSessionVerified(true);
+      setView('merchant_dashboard');
     } else alert("Invalid Merchant ID or Key");
     setIsProcessing(false);
   };
 
-  if (loading) return <div className="h-screen flex items-center justify-center bg-emerald-600 text-white font-black animate-pulse">CHIPLUNCONNECT MASTER</div>;
+  if (loading) return <div className="h-screen flex items-center justify-center bg-emerald-600 text-white font-black animate-pulse uppercase text-xs tracking-widest italic">CHIPLUNCONNECT MASTER V43</div>;
 
   return (
     <div className="max-w-md mx-auto bg-gray-50 min-h-screen flex flex-col shadow-2xl relative font-sans text-gray-900 overflow-x-hidden">
       
-      {/* FINAL BOOKING MODAL */}
+      {/* GLOBAL MODALS */}
       {showConfirmModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[500] flex items-center justify-center p-6 animate-in zoom-in-95 text-left">
            <div className="bg-white w-full rounded-[3.5rem] p-10 shadow-2xl">
               <Lucide.ShieldCheck size={48} className="text-emerald-500 mx-auto mb-4" />
-              <h3 className="text-xl font-black text-center mb-6 uppercase tracking-tighter italic">Confirm Booking</h3>
+              <h3 className="text-xl font-black text-center mb-6 uppercase tracking-tighter italic">Confirm Order</h3>
               <div className="bg-gray-50 p-6 rounded-3xl space-y-3 mb-8 text-[10px] font-black uppercase border border-gray-100 shadow-inner text-left text-gray-700">
                  <div className="flex justify-between"><span>Merchant:</span><span className="text-emerald-800">{selectedStore?.name}</span></div>
-                 <div className="flex justify-between"><span>Provider:</span><span>{bookingMeta.resourceName || 'Assigned'}</span></div>
+                 <div className="flex justify-between"><span>Schedule:</span><span>{bookingMeta.time}</span></div>
                  <div className="flex justify-between border-t border-gray-200 pt-3"><span>Payable:</span><span className="text-xl font-black text-emerald-600">₹{cart.reduce((a, b) => a + Number(b.price), 0)}</span></div>
               </div>
-              <button disabled={isProcessing} onClick={handleFinalConfirm} className="w-full bg-emerald-600 text-white py-5 rounded-[2.5rem] font-black uppercase text-xs shadow-xl active:scale-95 transition-all">Verifying & Booking...</button>
+              <button disabled={isProcessing} onClick={handleFinalConfirm} className="w-full bg-emerald-600 text-white py-5 rounded-[2.5rem] font-black uppercase text-xs shadow-xl active:scale-95 transition-all">Verify & Book Now</button>
               <button onClick={() => setShowConfirmModal(false)} className="w-full py-4 text-gray-400 font-black text-[10px] uppercase text-center w-full">Go Back</button>
            </div>
         </div>
       )}
 
-      {/* ADMIN PURGE MODAL */}
       {deleteTarget && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[500] flex items-center justify-center p-6 animate-in fade-in text-center">
            <div className="bg-white w-full rounded-[3rem] p-10 shadow-2xl border-2 border-rose-100">
@@ -191,7 +185,7 @@ export default function App() {
                 reqSnap.forEach(async (d) => await deleteDoc(d.ref));
                 setDeleteTarget(null);
                 setIsProcessing(false);
-              }} className="w-full bg-rose-500 text-white py-5 rounded-2xl font-black uppercase text-xs mb-3 shadow-xl">Confirm Delete</button>
+              }} className="w-full bg-rose-50 text-white py-5 rounded-2xl font-black uppercase text-xs mb-3 shadow-xl">Purge Entire Data</button>
               <button onClick={() => setDeleteTarget(null)} className="w-full py-4 text-gray-400 font-bold text-xs uppercase">Cancel</button>
            </div>
         </div>
@@ -202,14 +196,14 @@ export default function App() {
         <div className="flex justify-between items-center mb-6">
           <div onClick={() => setView('home')} className="cursor-pointer active:scale-95 transition-all text-left">
             <h1 className="text-2xl font-black tracking-tighter italic">ChiplunConnect</h1>
-            <p className="text-[9px] font-bold opacity-70 uppercase tracking-widest italic font-black">Pro Enterprise • MH-08</p>
+            <p className="text-[9px] font-bold opacity-70 uppercase tracking-widest italic font-black">Nexus Enterprise • MH-08</p>
           </div>
           <button onClick={() => setView('admin')} className="w-10 h-10 bg-white/10 rounded-2xl flex items-center justify-center border border-white/5 active:bg-white/30 shadow-inner"><Lucide.Lock size={20}/></button>
         </div>
         {view === 'home' && (
           <div className="relative animate-in slide-in-from-top-2">
             <Lucide.Search className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-300" size={18} />
-            <input type="text" placeholder="Search businesses or areas..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-white/10 border border-white/20 rounded-2xl py-3.5 pl-12 pr-4 text-white placeholder-emerald-200 outline-none shadow-inner" />
+            <input type="text" placeholder="Search verified services..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-white/10 border border-white/20 rounded-2xl py-3.5 pl-12 pr-4 text-white placeholder-emerald-200 outline-none focus:bg-white/20 shadow-inner" />
           </div>
         )}
       </header>
@@ -242,9 +236,9 @@ export default function App() {
                            <div className={`${status.color} px-2 py-0.5 rounded-full flex items-center gap-1 text-white text-[7px] font-black uppercase shadow-sm`}>{status.icon} {status.label}</div>
                         </div>
                         <h3 className="font-bold text-gray-800 text-sm leading-tight uppercase tracking-tight">{store.name}</h3>
-                        <p className="text-[10px] text-gray-400 font-medium italic mt-0.5">{store.address}</p>
+                        <p className="text-[10px] text-gray-400 font-medium italic mt-0.5 leading-none">{store.address}</p>
                       </div>
-                      <Lucide.ChevronRight size={18} className="text-gray-200 mr-2 group-hover:text-emerald-400" />
+                      <Lucide.ChevronRight size={18} className="text-gray-200 mr-1" />
                     </div>
                    );
                  })}
@@ -258,7 +252,7 @@ export default function App() {
            <div className="pt-4 space-y-6 animate-in slide-in-from-right-4 pb-10 text-left">
              <button onClick={() => setView('home')} className="flex items-center text-emerald-600 font-black text-[10px] uppercase mb-4 active:scale-95 transition-all"><Lucide.ArrowLeft size={16} className="mr-1"/> BACK</button>
              <img src={selectedStore.image || "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=400"} className="w-full h-52 rounded-[3rem] object-cover shadow-2xl" />
-             <section className="bg-white p-6 rounded-[3rem] shadow-sm border border-gray-100">
+             <section className="bg-white p-6 rounded-[3rem] shadow-sm border border-gray-100 text-left">
                <h2 className="text-2xl font-black italic text-emerald-900 uppercase tracking-tighter">{selectedStore.name}</h2>
                <p className="text-gray-400 text-xs mb-8 flex items-center italic font-medium text-left"><Lucide.MapPin size={12} className="mr-1"/> {selectedStore.address}</p>
                
@@ -267,18 +261,8 @@ export default function App() {
                   <div className="space-y-4 mb-8 p-6 bg-blue-50/50 rounded-[2.5rem] border border-blue-100 animate-in fade-in">
                     <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest text-center italic font-black">Route Specs</p>
                     <div className="grid grid-cols-2 gap-3">
-                       <input placeholder="Source Area" onChange={e => setBookingMeta({...bookingMeta, source: e.target.value})} className="bg-white p-3 rounded-2xl text-xs font-bold outline-none border border-blue-200 uppercase shadow-inner" />
+                       <input placeholder="From Location" onChange={e => setBookingMeta({...bookingMeta, source: e.target.value})} className="bg-white p-3 rounded-2xl text-xs font-bold outline-none border border-blue-200 uppercase shadow-inner" />
                        <input placeholder="Destination" onChange={e => setBookingMeta({...bookingMeta, destination: e.target.value})} className="bg-white p-3 rounded-2xl text-xs font-bold outline-none border border-blue-200 uppercase shadow-inner" />
-                    </div>
-                  </div>
-               )}
-
-               {selectedStore.category === 'clinic' && (
-                  <div className="space-y-4 mb-8 p-6 bg-emerald-50/50 rounded-[2.5rem] border border-emerald-100 animate-in fade-in text-left">
-                    <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest text-center italic font-black">Patient Data</p>
-                    <div className="flex gap-2">
-                       <input placeholder="Age" type="number" onChange={e => setBookingMeta({...bookingMeta, patientAge: e.target.value})} className="flex-1 bg-white p-3 rounded-2xl text-xs font-bold outline-none border border-emerald-200 shadow-inner" />
-                       <select onChange={e => setBookingMeta({...bookingMeta, consultType: e.target.value})} className="flex-1 bg-white p-3 rounded-2xl text-xs font-bold border border-emerald-200 uppercase font-black"><option>Regular</option><option>Urgent</option></select>
                     </div>
                   </div>
                )}
@@ -295,10 +279,10 @@ export default function App() {
              </section>
 
              {cart.length > 0 && (
-               <div className="bg-white p-6 rounded-[3rem] shadow-sm border border-gray-100 animate-in slide-in-from-bottom-4">
+               <div className="bg-white p-6 rounded-[3rem] shadow-sm border border-gray-100 animate-in slide-in-from-bottom-4 text-left">
                  <h3 className="text-[10px] font-black text-gray-400 uppercase mb-6 text-center tracking-widest font-black">Scheduling</h3>
                  <div className="space-y-4">
-                   <div className="flex gap-2">
+                   <div className="flex gap-2 text-left">
                       <input type="date" onChange={e => setBookingMeta({...bookingMeta, date: e.target.value})} className="flex-1 bg-gray-50 p-4 rounded-2xl font-bold text-sm outline-none border border-gray-100 shadow-inner" />
                       <input type="time" onChange={e => setBookingMeta({...bookingMeta, time: e.target.value})} className="w-32 bg-gray-50 p-4 rounded-2xl font-bold text-sm outline-none border border-gray-100 shadow-inner" />
                    </div>
@@ -306,12 +290,12 @@ export default function App() {
                    {isMerchantOnBreak(bookingMeta.time, selectedStore) && (
                       <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 flex items-center gap-3 animate-pulse">
                          <Lucide.Coffee size={20} className="text-amber-600"/>
-                         <p className="text-[9px] font-black text-amber-800 uppercase italic leading-tight">Merchant on lunch ({selectedStore.lunchStart} to {selectedStore.lunchEnd}). Pick another time.</p>
+                         <p className="text-[9px] font-black text-amber-800 uppercase italic leading-tight text-left">Merchant on lunch ({selectedStore.lunchStart} to {selectedStore.lunchEnd}). Pick another time.</p>
                       </div>
                    )}
 
-                   <select onChange={e => setBookingMeta({...bookingMeta, resourceName: e.target.value})} className="w-full bg-gray-50 p-4 rounded-2xl outline-none font-bold text-sm shadow-inner">
-                      <option value="">{selectedStore.category === 'salon' ? 'Select Stylist/Barber' : selectedStore.category === 'travel' ? 'Select Driver/Vehicle' : selectedStore.category === 'clinic' ? 'Select Doctor' : 'Select Technician'}</option>
+                   <select onChange={e => setBookingMeta({...bookingMeta, resourceName: e.target.value})} className="w-full bg-gray-50 p-4 rounded-2xl outline-none font-bold text-sm shadow-inner text-left">
+                      <option value="">{selectedStore.category === 'salon' ? 'Select Barber/Stylist' : selectedStore.category === 'travel' ? 'Select Driver/Vehicle' : selectedStore.category === 'clinic' ? 'Select Doctor' : 'Select Technician'}</option>
                       {selectedStore.staff?.map((st, i) => {
                          const busy = isSpecialistBusy(st, bookingMeta.date, bookingMeta.time);
                          return <option key={i} value={st} disabled={busy}>{st} {busy ? '(BUSY)' : ''}</option>
@@ -328,235 +312,274 @@ export default function App() {
            </div>
         )}
 
-        {/* VIEW: ACCOUNT (Unified Hub) */}
+        {/* VIEW: MERCHANT DASHBOARD (Partner Hub) */}
+        {view === 'merchant_dashboard' && isSessionVerified && (
+           <div className="pt-4 space-y-6 px-4 pb-20 animate-in slide-in-from-bottom-8 text-left">
+              <div className="flex justify-between items-center text-left"><h2 className="text-2xl font-black text-emerald-900 italic uppercase tracking-tight text-left">{profile.businessName}</h2><button onClick={() => {setIsSessionVerified(false); setView('account');}} className="bg-rose-50 px-4 py-2 rounded-xl text-rose-500 font-black text-[8px] uppercase shadow-sm">Logout</button></div>
+
+              {/* PULSE ANALYTICS */}
+              <div className="grid grid-cols-2 gap-3 text-left">
+                 <div className="bg-white p-5 rounded-[2.5rem] border border-gray-100 shadow-sm flex flex-col items-center">
+                    <p className="text-[8px] font-black uppercase text-gray-400 mb-1 tracking-widest">Today's Revenue</p>
+                    <p className="text-xl font-black text-emerald-600">₹{todayRevenue}</p>
+                 </div>
+                 <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/#store=${profile.businessId}`); alert("Store Link Copied!"); }} className="bg-white p-5 rounded-[2.5rem] border border-gray-100 shadow-sm flex flex-col items-center active:scale-95 transition-all">
+                    <Lucide.QrCode size={20} className="text-emerald-600 mb-1"/>
+                    <p className="text-[8px] font-black uppercase text-emerald-900 italic">Share QR Link</p>
+                 </button>
+              </div>
+
+              {/* LIVE LEDGER */}
+              <section className="bg-emerald-600 text-white p-7 rounded-[3rem] shadow-xl space-y-4 border border-black/5 text-left">
+                 <h3 className="text-[10px] font-black uppercase tracking-widest flex items-center opacity-80 italic font-black font-black uppercase tracking-widest text-left"><Lucide.Calendar size={14} className="mr-2"/> Active Queue</h3>
+                 <div className="space-y-3 max-h-72 overflow-y-auto pr-1 text-left">
+                   {merchantBookings.length > 0 ? merchantBookings.sort((a,b) => b.timestamp - a.timestamp).map((b, i) => (
+                      <div key={i} className="bg-white/10 p-4 rounded-2xl border border-white/5 space-y-1 animate-in fade-in text-left">
+                         <div className="flex justify-between font-black text-[11px] uppercase italic text-white text-left text-left"><span>{b.custName || 'Guest'}</span><span className="text-emerald-200">#{b.displayId}</span></div>
+                         <div className="bg-emerald-700/50 px-3 py-1 rounded-xl inline-block mt-1 text-left"><p className="text-[9px] font-black text-emerald-50 uppercase tracking-tighter italic font-black text-emerald-50 text-left">Services: {b.services?.map(s => s.name).join(', ')}</p></div>
+                         <p className="text-[9px] opacity-70 uppercase font-bold tracking-widest block pt-1 italic text-left">{b.date} • {b.time} • {b.resourceName || 'First Available'}</p>
+                         <div className="pt-2 flex justify-between items-center text-left text-left">
+                            <span className="text-[10px] font-black uppercase text-emerald-200 flex items-center gap-1 text-left"><Lucide.Phone size={10}/> {b.custPhone}</span>
+                            <button onClick={async () => { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'bookings', b.id), { status: 'completed' }); }} className="bg-white text-emerald-600 px-3 py-1 rounded-lg text-[9px] font-black uppercase shadow-sm active:scale-90 transition-all text-left">Mark Done</button>
+                         </div>
+                      </div>
+                   )) : <p className="text-center py-10 text-[9px] opacity-60 font-bold uppercase tracking-widest italic font-black text-emerald-200">Zero active bookings</p>}
+                 </div>
+              </section>
+
+              <section className="bg-white p-7 rounded-[3rem] shadow-sm border border-gray-100 space-y-6 text-left text-left">
+                 <div className="flex justify-between items-center text-left"><h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center font-black italic uppercase tracking-widest text-left"><Lucide.Clock size={14} className="mr-2 text-emerald-600"/> Operations</h3>{editForm.image && <img src={editForm.image} className="w-10 h-10 rounded-xl object-cover shadow-sm border border-gray-50" />}</div>
+                 <div className="grid grid-cols-2 gap-2 text-left">
+                   <div className="space-y-1 text-left"><p className="text-[8px] font-black text-gray-400 ml-1 uppercase italic text-left">Lunch Start</p><input type="time" value={editForm.lunchStart} onChange={e => setEditForm({...editForm, lunchStart: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase text-left" /></div>
+                   <div className="space-y-1 text-left"><p className="text-[8px] font-black text-gray-400 ml-1 uppercase italic text-left">Lunch End</p><input type="time" value={editForm.lunchEnd} onChange={e => setEditForm({...editForm, lunchEnd: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase text-left" /></div>
+                 </div>
+                 <input placeholder="Logo Image URL" value={editForm.image} onChange={e => setEditForm({...editForm, image: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase text-left" />
+                 <input placeholder="Shop Name" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border text-left" />
+                 <button onClick={async () => { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), editForm); alert("Updated Successfully!"); }} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] shadow-lg active:scale-95 transition-all text-center">Save Settings</button>
+              </section>
+
+              {/* RESOURCE MANAGEMENT FIXED CARD */}
+              <section className="bg-white p-7 rounded-[3rem] shadow-sm border border-gray-100 text-left text-left">
+                 <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6 font-black uppercase tracking-widest italic text-left text-left">
+                   {myStore?.category === 'salon' ? 'Manage Barbers & Stylists' : 
+                    myStore?.category === 'travel' ? 'Manage Drivers & Vehicles' : 
+                    myStore?.category === 'clinic' ? 'Manage Doctors' : 
+                    'Manage Technicians & Experts'}
+                 </h3>
+                 <div className="flex flex-wrap gap-2 mb-6 text-left">
+                   {myStore?.staff?.map((n, i) => (<div key={i} className="bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 text-left">{n} <button onClick={async () => { const updated = myStore.staff.filter((_, idx) => idx !== i); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { staff: updated }); }}><Lucide.X size={12}/></button></div>))}
+                 </div>
+                 <div className="flex gap-2 text-left"><input placeholder={myStore?.category === 'salon' ? 'Barber Name' : 'Expert Name'} value={newStaff} onChange={e => setNewStaff(e.target.value)} className="flex-1 bg-gray-50 p-3 rounded-lg font-bold text-sm outline-none border shadow-inner text-left" /><button onClick={async () => { if(!newStaff) return; const updated = [...(myStore.staff || []), newStaff]; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { staff: updated }); setNewStaff(''); }} className="bg-emerald-600 text-white p-3 rounded-lg active:scale-95 shadow-lg text-left"><Lucide.Plus size={18}/></button></div>
+              </section>
+
+              {/* SERVICE PRICE LIST FIXED CARD (RE-ADDED FOR ALL) */}
+              <section className="bg-white p-7 rounded-[3rem] shadow-sm border border-gray-100 text-left text-left">
+                 <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6 font-black uppercase tracking-widest italic text-left text-left">Service Menu</h3>
+                 <div className="space-y-3 mb-6 max-h-40 overflow-y-auto pr-1 text-left text-left">
+                   {myStore?.services?.map((s, i) => (
+                      <div key={i} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl font-bold text-sm border border-gray-100 text-left text-left">
+                         <div><p className="uppercase text-left">{s.name}</p><p className="text-gray-400 text-[10px] text-left">₹{s.price} • {s.duration} min</p></div>
+                         <button onClick={async () => { const updated = myStore.services.filter((_, idx) => idx !== i); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { services: updated }); }} className="text-rose-400 p-2.5 bg-white rounded-xl shadow-sm hover:text-rose-600 transition-all text-left"><Lucide.Trash2 size={16}/></button>
+                      </div>
+                   ))}
+                 </div>
+                 <div className="space-y-3 pt-6 border-t border-gray-100 text-left">
+                   <input placeholder="New Service Title" value={newSvc.name} onChange={e => setNewSvc({...newSvc, name: e.target.value})} className="w-full bg-gray-50 p-3 rounded-xl text-xs outline-none uppercase font-bold border shadow-inner text-left" />
+                   <div className="grid grid-cols-2 gap-2 text-left">
+                      <input placeholder="Price ₹" type="number" value={newSvc.price} onChange={e => setNewSvc({...newSvc, price: e.target.value})} className="bg-gray-50 p-3 rounded-xl text-xs outline-none font-bold border shadow-inner text-left" />
+                      <input placeholder="Mins" type="number" value={newSvc.duration} onChange={e => setNewSvc({...newSvc, duration: e.target.value})} className="bg-gray-50 p-3 rounded-xl text-xs outline-none font-bold border shadow-inner text-left" />
+                   </div>
+                   <button onClick={async () => { if(!newSvc.name || !newSvc.price) return; const current = myStore?.services || []; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { services: [...current, newSvc] }); setNewSvc({name:'', price:'', duration:'30'}); }} className="w-full bg-emerald-600 text-white py-3 rounded-xl font-black uppercase text-[10px] shadow-lg active:scale-95 transition-all text-center">Add to Menu</button>
+                 </div>
+              </section>
+
+              <button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { isLive: !myStore?.isLive })} className={`w-full py-6 rounded-[2.5rem] font-black uppercase shadow-2xl active:scale-95 transition-all ${myStore?.isLive ? 'bg-rose-500 text-white shadow-rose-100' : 'bg-emerald-600 text-white shadow-emerald-100'}`}>
+                 {myStore?.isLive ? 'Shut Shop (Go Offline)' : 'Set Business Live (Open)'}
+              </button>
+           </div>
+        )}
+
+        {/* VIEW: ACCOUNT (Token Wallet) */}
         {view === 'account' && (
            <div className="pt-4 space-y-6 px-4 pb-10 animate-in slide-in-from-bottom-4 text-left">
-              {!isSessionVerified ? (
-                 <div className="animate-in zoom-in-95 pt-20 text-center">
-                    <div className="text-center mb-10">
-                       <Lucide.UserCircle size={64} className="mx-auto text-emerald-600 mb-2 p-4 bg-emerald-50 rounded-[2.5rem] shadow-inner"/>
-                       <h2 className="text-3xl font-black uppercase tracking-tighter italic text-emerald-900 text-center uppercase">Account Hub</h2>
-                    </div>
-                    
-                    <section className="bg-white p-8 rounded-[3.5rem] shadow-2xl space-y-4 border border-gray-100 text-left">
-                       <input placeholder="Merchant User ID" value={vendorLogin.id} onChange={e => setVendorLogin({...vendorLogin, id: e.target.value})} className="w-full bg-gray-50 p-4 rounded-2xl font-bold text-sm outline-none uppercase shadow-inner border focus:border-emerald-500" />
-                       <input type="password" placeholder="Passcode" value={vendorLogin.pass} onChange={e => setVendorLogin({...vendorLogin, pass: e.target.value})} className="w-full bg-gray-50 p-4 rounded-2xl font-bold text-sm outline-none shadow-inner border focus:border-emerald-500" />
-                       <button onClick={handleVendorLogin} className="w-full bg-emerald-600 text-white py-5 rounded-[2rem] font-black shadow-xl uppercase active:scale-95 transition-all tracking-widest">Authorize Session</button>
-                    </section>
-
-                    {myBookings.length > 0 && (
-                      <section className="mt-20 space-y-4 text-left">
-                         <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 italic">My Tokens Wallet</h3>
-                         <div className="space-y-3">
-                            {myBookings.map((b, i) => (
-                               <div key={i} className="bg-white p-5 rounded-[2rem] border border-gray-100 flex justify-between items-center shadow-sm">
-                                  <div><p className="font-bold text-sm uppercase">{b.storeName}</p><p className="text-[8px] text-gray-400 uppercase font-black italic">{b.date} • {b.time}</p></div>
-                                  <span className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-xl text-[10px] font-black tracking-widest italic">{b.displayId}</span>
+              <div className="flex items-center justify-between mb-8">
+                 <h2 className="text-3xl font-black uppercase tracking-tighter italic text-emerald-900">My Account</h2>
+                 <Lucide.UserCircle size={40} className="text-emerald-600 p-2 bg-emerald-50 rounded-2xl shadow-inner"/>
+              </div>
+              
+              <section className="space-y-4 mb-10 text-left">
+                 <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 italic font-black">My Personal Token Wallet</h3>
+                 {myBookings.length > 0 ? (
+                   <div className="space-y-3 text-left">
+                      {myBookings.map((b, i) => (
+                         <div key={i} className="bg-white p-5 rounded-[2rem] border border-gray-100 flex justify-between items-center shadow-sm hover:border-emerald-200 transition-all cursor-pointer text-left" onClick={() => {setTrackInput(b.displayId); setView('track'); handleTrackToken();}}>
+                            <div className="text-left">
+                               <p className="font-bold text-sm text-gray-800 uppercase tracking-tight text-left">{b.storeName}</p>
+                               <div className="flex items-center gap-2 text-[8px] text-gray-400 font-black uppercase mt-1 text-left">
+                                  <span>{b.date}</span><span>•</span><span>{b.time}</span>
                                </div>
-                            ))}
+                            </div>
+                            <div className="text-right text-left">
+                               <span className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-xl text-[10px] font-black tracking-widest italic shadow-sm text-left">{b.displayId}</span>
+                               <p className="text-[7px] font-black uppercase text-gray-300 italic tracking-widest text-left">{b.status || 'Pending'}</p>
+                            </div>
                          </div>
-                      </section>
-                    )}
-                 </div>
-              ) : (
-                <div className="space-y-6 animate-in slide-in-from-bottom-8 pb-20 text-left">
-                   <div className="flex justify-between items-center"><h2 className="text-2xl font-black text-emerald-900 italic uppercase tracking-tight">{profile.businessName}</h2><button onClick={() => setIsSessionVerified(false)} className="bg-rose-50 px-4 py-2 rounded-xl text-rose-500 font-black text-[8px] uppercase shadow-sm">Logout</button></div>
-
-                   <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-white p-5 rounded-[2.5rem] border border-gray-100 shadow-sm flex flex-col items-center">
-                         <p className="text-[8px] font-black uppercase text-gray-400 mb-1 tracking-widest">Today's Revenue</p>
-                         <p className="text-xl font-black text-emerald-600">₹{todayRevenue}</p>
-                      </div>
-                      <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/#store=${profile.businessId}`); alert("Store Link Copied!"); }} className="bg-white p-5 rounded-[2.5rem] border border-gray-100 shadow-sm flex flex-col items-center active:scale-95 transition-all">
-                         <Lucide.QrCode size={20} className="text-emerald-600 mb-1"/>
-                         <p className="text-[8px] font-black uppercase text-emerald-900 italic">Share QR Link</p>
-                      </button>
+                      ))}
                    </div>
+                 ) : (
+                   <div className="py-12 bg-white rounded-[2.5rem] border border-gray-100 text-center space-y-2 text-left">
+                      <Lucide.Wallet size={32} className="mx-auto text-gray-100" />
+                      <p className="text-gray-300 font-black uppercase text-[8px] tracking-widest text-center">Wallet Empty • Book something first</p>
+                   </div>
+                 )}
+              </section>
 
-                   <section className="bg-emerald-600 text-white p-7 rounded-[3rem] shadow-xl space-y-4 border border-black/5">
-                      <h3 className="text-[10px] font-black uppercase tracking-widest flex items-center opacity-80 italic font-black font-black uppercase tracking-widest"><Lucide.Calendar size={14} className="mr-2"/> Live Queue</h3>
-                      <div className="space-y-3 max-h-72 overflow-y-auto pr-1 text-left">
-                        {merchantBookings.length > 0 ? merchantBookings.sort((a,b) => b.timestamp - a.timestamp).map((b, i) => (
-                           <div key={i} className="bg-white/10 p-4 rounded-2xl border border-white/5 space-y-1 animate-in fade-in">
-                              <div className="flex justify-between font-black text-[11px] uppercase italic text-white text-left"><span>{b.custName || 'Guest'}</span><span className="text-emerald-200">#{b.displayId}</span></div>
-                              <div className="bg-emerald-700/50 px-3 py-1 rounded-xl inline-block mt-1"><p className="text-[9px] font-black text-emerald-50 uppercase tracking-tighter italic font-black text-emerald-50">Booked: {b.services?.map(s => s.name).join(', ')}</p></div>
-                              <p className="text-[9px] opacity-70 uppercase font-bold tracking-widest block pt-1 italic">{b.date} • {b.time} • {b.resourceName || 'First Available'}</p>
-                              <div className="pt-2 flex justify-between items-center text-left">
-                                 <span className="text-[10px] font-black uppercase text-emerald-200 flex items-center gap-1"><Lucide.Phone size={10}/> {b.custPhone}</span>
-                                 <button onClick={async () => { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'bookings', b.id), { status: 'completed' }); }} className="bg-white text-emerald-600 px-3 py-1 rounded-lg text-[9px] font-black uppercase shadow-sm active:scale-90 transition-all">Mark Done</button>
-                              </div>
-                           </div>
-                        )) : <p className="text-center py-10 text-[9px] opacity-60 font-bold uppercase tracking-widest italic font-black text-emerald-200">Zero active bookings</p>}
-                      </div>
-                   </section>
-
-                   <section className="bg-white p-7 rounded-[3rem] shadow-sm border border-gray-100 space-y-6 text-left">
-                      <div className="flex justify-between items-center"><h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center font-black italic uppercase tracking-widest"><Lucide.Clock size={14} className="mr-2 text-emerald-600"/> Operations</h3>{editForm.image && <img src={editForm.image} className="w-10 h-10 rounded-xl object-cover shadow-sm border border-gray-50" />}</div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="space-y-1"><p className="text-[8px] font-black text-gray-400 ml-1 uppercase italic">Lunch Start</p><input type="time" value={editForm.lunchStart} onChange={e => setEditForm({...editForm, lunchStart: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" /></div>
-                        <div className="space-y-1"><p className="text-[8px] font-black text-gray-400 ml-1 uppercase italic">Lunch End</p><input type="time" value={editForm.lunchEnd} onChange={e => setEditForm({...editForm, lunchEnd: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" /></div>
-                      </div>
-                      <input placeholder="Image URL (Logo)" value={editForm.image} onChange={e => setEditForm({...editForm, image: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" />
-                      <input placeholder="Shop Name" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border" />
-                      <button onClick={async () => { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), editForm); alert("Sync Complete!"); }} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] shadow-lg active:scale-95 transition-all">Save Operations</button>
-                   </section>
-
-                   {/* UI: CATEGORY BASED LABELS FIXED (FIX FOR ALL LOGIN BUGS) */}
-                   <section className="bg-white p-7 rounded-[3rem] shadow-sm border border-gray-100 text-left">
-                      <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6 font-black uppercase tracking-widest italic text-left">
-                        {myStore?.category === 'salon' ? 'Manage Barbers & Stylists' : 
-                         myStore?.category === 'travel' ? 'Manage Drivers & Vehicles' : 
-                         myStore?.category === 'clinic' ? 'Manage Doctors' : 
-                         'Manage Technicians & job-cards'}
-                      </h3>
-                      <div className="flex flex-wrap gap-2 mb-6">
-                        {myStore?.staff?.map((n, i) => (<div key={i} className="bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2">{n} <button onClick={async () => { const s_ = stores.find(st => st.id === profile.businessId); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { staff: s_.staff.filter((_, idx) => idx !== i) }); }}><Lucide.X size={12}/></button></div>))}
-                      </div>
-                      <div className="flex gap-2"><input placeholder={myStore?.category === 'salon' ? 'Professional Name' : myStore?.category === 'travel' ? 'Driver/Vehicle Data' : 'Name'} value={newStaff} onChange={e => setNewStaff(e.target.value)} className="flex-1 bg-gray-50 p-3 rounded-lg font-bold text-sm outline-none border shadow-inner" /><button onClick={async () => { if(!newStaff) return; const s = stores.find(st => st.id === profile.businessId); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { staff: [...(s.staff || []), newStaff] }); setNewStaff(''); }} className="bg-emerald-600 text-white p-3 rounded-lg active:scale-95 shadow-lg"><Lucide.Plus size={18}/></button></div>
-                   </section>
-
-                   {/* SERVICE MANAGEMENT: NOW AVAILABLE FOR ALL CATEGORIES */}
-                   <section className="bg-white p-7 rounded-[3rem] shadow-sm border border-gray-100 text-left">
-                      <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6 font-black uppercase tracking-widest italic">Service Price List</h3>
-                      <div className="space-y-3 mb-6 max-h-40 overflow-y-auto pr-1">
-                        {myStore?.services?.map((s, i) => (
-                           <div key={i} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl font-bold text-sm border border-gray-100 text-left">
-                              <div><p className="uppercase">{s.name}</p><p className="text-gray-400 text-[10px]">₹{s.price} • {s.duration} min</p></div>
-                              <button onClick={async () => { const updated = myStore.services.filter((_, idx) => idx !== i); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { services: updated }); }} className="text-rose-400 p-2.5 bg-white rounded-xl shadow-sm hover:text-rose-600 transition-all"><Lucide.Trash2 size={16}/></button>
-                           </div>
-                        ))}
-                      </div>
-                      <div className="space-y-3 pt-6 border-t border-gray-100">
-                        <input placeholder="Service Name (e.g. Haircut)" value={newSvc.name} onChange={e => setNewSvc({...newSvc, name: e.target.value})} className="w-full bg-gray-50 p-3 rounded-xl text-xs outline-none uppercase font-bold border shadow-inner" />
-                        <div className="grid grid-cols-2 gap-2">
-                           <input placeholder="Price ₹" type="number" value={newSvc.price} onChange={e => setNewSvc({...newSvc, price: e.target.value})} className="bg-gray-50 p-3 rounded-xl text-xs outline-none font-bold border shadow-inner" />
-                           <input placeholder="Mins" type="number" value={newSvc.duration} onChange={e => setNewSvc({...newSvc, duration: e.target.value})} className="bg-gray-50 p-3 rounded-xl text-xs outline-none font-bold border shadow-inner" />
-                        </div>
-                        <button onClick={async () => { if(!newSvc.name || !newSvc.price) return; const current = myStore?.services || []; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { services: [...current, newSvc] }); setNewSvc({name:'', price:'', duration:'30'}); }} className="w-full bg-emerald-600 text-white py-3 rounded-xl font-black uppercase text-[10px] shadow-lg active:scale-95 transition-all">Add to Menu</button>
-                      </div>
-                   </section>
-
-                   <button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { isLive: !myStore?.isLive })} className={`w-full py-6 rounded-[2.5rem] font-black uppercase shadow-2xl active:scale-95 transition-all ${myStore?.isLive ? 'bg-rose-500 text-white shadow-rose-100' : 'bg-emerald-600 text-white shadow-emerald-100'}`}>
-                      {myStore?.isLive ? 'Shut Shop (Go Offline)' : 'Set Business Live (Open Now)'}
-                   </button>
-                </div>
-              )}
+              <section className="bg-gray-100 p-6 rounded-[3rem] border border-gray-200 mt-12 text-left">
+                 <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-4 flex items-center italic font-black uppercase tracking-widest text-left text-left"><Lucide.ShieldCheck size={14} className="mr-2"/> Merchant Entrance</h3>
+                 <div className="space-y-3 text-left">
+                    <input placeholder="Merchant User ID" value={vendorLogin.id} onChange={e => setVendorLogin({...vendorLogin, id: e.target.value})} className="w-full bg-white p-4 rounded-2xl font-bold text-sm outline-none border-2 border-transparent focus:border-emerald-500 shadow-sm text-left" />
+                    <input type="password" placeholder="Passcode" value={vendorLogin.pass} onChange={e => setVendorLogin({...vendorLogin, pass: e.target.value})} className="w-full bg-white p-4 rounded-2xl font-bold text-sm outline-none border-2 border-transparent focus:border-emerald-500 shadow-sm text-left" />
+                    <button onClick={handleVendorLogin} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black shadow-xl active:scale-95 transition-all text-xs uppercase tracking-widest text-center">Unlock Partner Panel</button>
+                 </div>
+              </section>
            </div>
         )}
 
         {/* VIEW: TRACK TOKEN */}
         {view === 'track' && (
-           <div className="pt-4 space-y-6 animate-in slide-in-from-bottom-4 px-4 pb-20 text-left">
-              <h2 className="text-2xl font-black text-emerald-900 uppercase tracking-tighter italic">Track Token</h2>
-              <div className="bg-white p-2 rounded-[2.5rem] shadow-sm border border-gray-100 flex gap-2">
-                 <input placeholder="Enter CH-XXXX" value={trackInput} onChange={e => setTrackInput(e.target.value)} className="flex-1 bg-transparent px-5 py-3 outline-none font-black tracking-widest text-sm uppercase" />
-                 <button onClick={handleTrackToken} className="bg-emerald-600 text-white p-3 rounded-2xl active:scale-90 transition-all shadow-lg shadow-emerald-50"><Lucide.Search size={22}/></button>
+           <div className="pt-4 space-y-6 animate-in slide-in-from-bottom-4 px-4 pb-20 text-left text-left">
+              <h2 className="text-2xl font-black text-emerald-900 uppercase tracking-tighter italic text-left">Track Token</h2>
+              <div className="bg-white p-2 rounded-[2.5rem] shadow-sm border border-gray-100 flex gap-2 text-left">
+                 <input placeholder="Enter CH-XXXX" value={trackInput} onChange={e => setTrackInput(e.target.value)} className="flex-1 bg-transparent px-5 py-3 outline-none font-black tracking-widest text-sm uppercase text-left" />
+                 <button onClick={handleTrackToken} className="bg-emerald-600 text-white p-3 rounded-2xl active:scale-90 transition-all shadow-lg shadow-emerald-50 text-left"><Lucide.Search size={22}/></button>
               </div>
               {searchedBooking ? (
-                <div className="bg-emerald-600 text-white p-8 rounded-[3.5rem] shadow-2xl animate-in zoom-in-95 relative overflow-hidden text-left shadow-emerald-100">
-                   <div className="absolute top-0 right-0 p-4 opacity-10"><Lucide.CheckCircle size={80}/></div>
-                   <div className="flex justify-between items-start mb-8 relative z-10">
-                      <div><p className="text-[10px] font-black uppercase opacity-60 tracking-widest">Verified Slot</p><h3 className="text-xl font-black italic uppercase tracking-tight">{searchedBooking.storeName}</h3></div>
-                      <span className="bg-white/20 px-3 py-1 rounded-xl text-[10px] font-black tracking-widest shadow-sm">{searchedBooking.displayId}</span>
+                <div className="bg-emerald-600 text-white p-8 rounded-[3.5rem] shadow-2xl animate-in zoom-in-95 relative overflow-hidden text-left shadow-emerald-100 text-left">
+                   <div className="absolute top-0 right-0 p-4 opacity-10 text-left"><Lucide.CheckCircle size={80}/></div>
+                   <div className="flex justify-between items-start mb-8 relative z-10 text-left">
+                      <div className="text-left"><p className="text-[10px] font-black uppercase opacity-60 tracking-widest text-left">Verified Slot</p><h3 className="text-xl font-black italic uppercase tracking-tight text-left">{searchedBooking.storeName}</h3></div>
+                      <span className="bg-white/20 px-3 py-1 rounded-xl text-[10px] font-black tracking-widest text-left">{searchedBooking.displayId}</span>
                    </div>
-                   <div className="space-y-4 text-sm font-bold relative z-10 border-t border-white/10 pt-6 text-white text-left">
-                      <div className="grid grid-cols-2 gap-4">
-                         <div><p className="opacity-60 text-[8px] uppercase mb-1 tracking-widest font-black italic">Queue Position</p><p className="text-xl font-black">#{searchedBooking.queuePos || '1'}</p></div>
-                         <div><p className="opacity-60 text-[8px] uppercase mb-1 tracking-widest font-black italic">Live Status</p><p className="text-lg uppercase">{searchedBooking.status || 'Pending'}</p></div>
+                   <div className="space-y-4 text-sm font-bold relative z-10 border-t border-white/10 pt-6 text-white text-left text-left">
+                      <div className="grid grid-cols-2 gap-4 text-left">
+                         <div className="text-left"><p className="opacity-60 text-[8px] uppercase mb-1 tracking-widest font-black italic text-left">Queue Position</p><p className="text-xl font-black text-left">#{searchedBooking.queuePos || '1'}</p></div>
+                         <div className="text-left"><p className="opacity-60 text-[8px] uppercase mb-1 tracking-widest font-black italic text-left">Live Status</p><p className="text-lg uppercase text-left">{searchedBooking.status || 'Pending'}</p></div>
                       </div>
-                      <div className="bg-white/10 p-4 rounded-3xl"><p className="opacity-60 text-[8px] uppercase mb-1 italic text-emerald-100 font-black tracking-widest">Timing</p><p className="font-black italic">{searchedBooking.date} • {searchedBooking.time}</p></div>
+                      <div className="bg-white/10 p-4 rounded-3xl text-left"><p className="opacity-60 text-[8px] uppercase mb-1 italic text-emerald-100 font-black tracking-widest text-left">Confirmed Timing</p><p className="font-black italic text-left">{searchedBooking.date} • {searchedBooking.time}</p></div>
                    </div>
-                   <button onClick={() => {setSearchedBooking(null); setTrackInput('');}} className="w-full mt-10 py-3 text-[10px] font-black uppercase bg-white/10 rounded-2xl active:scale-95 transition-all">New Search</button>
+                   <button onClick={() => {setSearchedBooking(null); setTrackInput('');}} className="w-full mt-10 py-3 text-[10px] font-black uppercase bg-white/10 rounded-2xl active:scale-95 transition-all text-center">Clear & New Search</button>
                 </div>
               ) : (
-                <p className="text-center py-20 text-gray-300 text-[10px] font-black uppercase tracking-widest animate-pulse italic font-black leading-relaxed">Privacy Guard Enabled • Chiplun MH-08</p>
+                <p className="text-center py-20 text-gray-300 text-[10px] font-black uppercase tracking-widest animate-pulse italic font-black leading-relaxed text-left">Privacy Guard Active • Use unique token code</p>
               )}
            </div>
         )}
 
-        {/* VIEW: ADMIN Portal (FIXED List Rendering) */}
+        {/* VIEW: ADMIN Portal (FIXED Registry Feed) */}
         {view === 'admin' && (
-           <div className="pt-20 text-center animate-in zoom-in-95 px-4">
-              <Lucide.Lock className="mx-auto text-emerald-600 mb-6" size={48} />
-              <input type="password" maxLength={6} value={adminPinInput} onChange={e => setAdminPinInput(e.target.value)} className="w-48 text-center text-6xl font-black border-b-4 border-emerald-100 outline-none bg-transparent mb-12 tracking-[0.2em]" />
-              <button onClick={() => { if(adminPinInput===ADMIN_PIN) setView('admin_panel'); else setAdminPinInput(''); }} className="w-full bg-emerald-600 text-white py-5 rounded-[2rem] font-black shadow-2xl active:scale-95 uppercase tracking-widest font-black uppercase italic text-center">Unlock Console</button>
+           <div className="pt-20 text-center animate-in zoom-in-95 px-4 text-center">
+              <Lucide.Lock className="mx-auto text-emerald-600 mb-6 text-center" size={48} />
+              <input type="password" maxLength={6} value={adminPinInput} onChange={e => setAdminPinInput(e.target.value)} className="w-48 text-center text-6xl font-black border-b-4 border-emerald-100 outline-none bg-transparent mb-12 tracking-[0.2em] text-center" />
+              <button onClick={() => { if(adminPinInput===ADMIN_PIN) setView('admin_panel'); else setAdminPinInput(''); }} className="w-full bg-emerald-600 text-white py-5 rounded-[2rem] font-black shadow-2xl active:scale-95 uppercase tracking-widest font-black uppercase italic text-center text-center">Unlock Console</button>
            </div>
         )}
 
         {view === 'admin_panel' && (
-          <div className="pt-4 space-y-8 pb-32 px-4 text-left flex flex-col h-full text-left">
-            <div className="flex justify-between items-center mb-6">
-               <h2 className="text-2xl font-black text-emerald-900 uppercase italic tracking-tighter">System Engine</h2>
-               <button onClick={() => setView('home')} className="bg-gray-100 p-2 rounded-xl text-gray-400 active:scale-90"><Lucide.XCircle size={18}/></button>
+          <div className="pt-4 space-y-8 pb-32 px-4 text-left flex flex-col h-full text-left text-left">
+            <div className="flex justify-between items-center mb-6 text-left">
+               <h2 className="text-2xl font-black text-emerald-900 uppercase italic tracking-tighter text-left">System Engine</h2>
+               <button onClick={() => setView('home')} className="bg-gray-100 p-2 rounded-xl text-gray-400 active:scale-90 text-left"><Lucide.XCircle size={18}/></button>
             </div>
 
-            <div className="space-y-4 mb-10 text-left">
-              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 italic font-black">Verified Directory</h3>
-              <div className="space-y-4 max-h-[35vh] overflow-y-auto pr-1">
+            <div className="space-y-4 mb-10 text-left text-left">
+              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 italic font-black text-left">Verified Directory</h3>
+              <div className="space-y-4 max-h-[35vh] overflow-y-auto pr-1 text-left text-left">
                 {stores.map(s => (
-                  <div key={s.id} className="bg-white p-5 rounded-[2.5rem] border border-gray-100 flex items-center gap-4 animate-in fade-in shadow-sm text-left">
-                    <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center font-black text-emerald-600 uppercase shadow-inner text-xl">{s.name[0]}</div>
-                    <div className="flex-1 font-bold text-sm uppercase">{s.name} <span className="block text-[8px] opacity-40 italic font-black">{s.category} • ID: {s.merchantId}</span></div>
-                    <button onClick={() => setDeleteTarget(s)} className="text-rose-400 p-3 active:bg-rose-50 rounded-xl transition-all shadow-sm hover:text-rose-600"><Lucide.Trash2 size={24}/></button>
+                  <div key={s.id} className="bg-white p-5 rounded-[2.5rem] border border-gray-100 flex items-center gap-4 animate-in fade-in shadow-sm text-left text-left">
+                    <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center font-black text-emerald-600 uppercase shadow-inner text-xl text-left">{s.name[0]}</div>
+                    <div className="flex-1 font-bold text-sm uppercase text-left">{s.name} <span className="block text-[8px] opacity-40 italic font-black text-left">{s.category} • ID: {s.merchantId}</span></div>
+                    <button onClick={() => setDeleteTarget(s)} className="text-rose-400 p-3 active:bg-rose-50 rounded-xl transition-all shadow-sm hover:text-rose-600 text-left"><Lucide.Trash2 size={24}/></button>
                   </div>
                 ))}
-                {stores.length === 0 && <p className="text-center py-6 text-[9px] text-gray-300 font-black uppercase italic">Directory Empty</p>}
+                {stores.length === 0 && <p className="text-center py-6 text-[9px] text-gray-300 font-black uppercase italic text-left text-center">Directory Empty</p>}
               </div>
             </div>
 
-            <div className="space-y-4 border-t border-gray-100 pt-8 text-left">
-              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 italic font-black">Intake Feed</h3>
-              <div className="space-y-4">
+            <div className="space-y-4 border-t border-gray-100 pt-8 text-left text-left">
+              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 italic font-black text-left">Application Inbox</h3>
+              <div className="space-y-4 text-left text-left text-left">
                  {requests.filter(r => r.status === 'pending').map(req => (
-                    <div key={req.id} className="bg-amber-50 p-7 rounded-[3rem] space-y-4 border border-amber-100 shadow-sm animate-in fade-in text-left">
-                       <h4 className="font-bold text-sm uppercase italic">{req.bizName}</h4>
-                       <div className="flex gap-2 text-left">
-                         <input id={`id-${req.id}`} placeholder="Issue ID" className="flex-1 p-3 rounded-xl text-xs font-bold outline-none uppercase border border-amber-200 shadow-inner" />
-                         <input id={`pw-${req.id}`} placeholder="Key" className="w-24 p-3 rounded-xl text-xs font-bold outline-none border border-amber-200 shadow-inner" />
+                    <div key={req.id} className="bg-amber-50 p-7 rounded-[3rem] space-y-4 border border-amber-100 shadow-sm animate-in fade-in text-left text-left">
+                       <h4 className="font-bold text-sm uppercase italic text-left text-left text-left">{req.bizName}</h4>
+                       <div className="flex gap-2 text-left text-left text-left">
+                         <input id={`id-${req.id}`} placeholder="Issue ID" className="flex-1 p-3 rounded-xl text-xs font-bold outline-none uppercase border border-amber-200 shadow-inner text-left text-left" />
+                         <input id={`pw-${req.id}`} placeholder="Key" className="w-24 p-3 rounded-xl text-xs font-bold outline-none border border-amber-200 shadow-inner text-left text-left" />
                        </div>
                        <button onClick={async () => {
                            const mid = document.getElementById(`id-${req.id}`).value;
                            const pass = document.getElementById(`pw-${req.id}`).value;
-                           if(!mid || !pass) return alert("Fill credentials");
-                           // UNIQUE REGISTRY FIX: Approval uses mid as unique doc ID
+                           if(!mid || !pass) return alert("Fill data");
+                           // PERSISTENCE REGISTRY FIX: Creating Store and Creds with Merchant ID as the unique key
                            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vendor_creds', mid.toUpperCase()), { password: pass, uid: req.uid, businessName: req.bizName, storeId: mid.toUpperCase() });
                            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', req.id), { status: 'approved' });
                            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', mid.toUpperCase()), { id: mid.toUpperCase(), name: req.bizName, address: req.addr, category: req.cat || 'salon', ownerId: req.uid, merchantId: mid.toUpperCase(), isLive: false, services: [], staff: [], image: "", lunchStart: '13:00', lunchEnd: '14:00' });
-                           alert("Enterprise Activated!");
-                        }} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] shadow-lg shadow-emerald-100 italic">Approve Business</button>
+                           alert("Merchant Authorized!");
+                        }} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] shadow-lg shadow-emerald-100 italic text-center text-center">Approve Business</button>
                     </div>
                  ))}
-                 {requests.filter(r => r.status === 'pending').length === 0 && <p className="text-center py-6 text-[9px] text-gray-300 font-black uppercase italic">Zero incoming requests</p>}
               </div>
             </div>
           </div>
         )}
 
+        {/* ONBOARDING */}
+        {view === 'onboarding' && (
+           <div className="pt-4 space-y-6 animate-in slide-in-from-bottom-4 px-4 pb-20 text-center text-left text-left">
+              <div className="text-center mb-10 text-left text-left">
+                 <Lucide.Building2 size={56} className="mx-auto text-emerald-600 mb-2 p-4 bg-emerald-50 rounded-[2.5rem] shadow-inner text-center text-center" />
+                 <h2 className="text-3xl font-black uppercase tracking-tighter text-emerald-900 italic text-center text-center text-center">Apply to join</h2>
+                 <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest text-center text-center">Register business for MH-08</p>
+              </div>
+              <div className="bg-white p-7 rounded-[3.5rem] shadow-xl space-y-4 border border-gray-100 text-left text-xs font-black uppercase text-left">
+                 <input placeholder="Official Shop Name" value={regForm.bizName} onChange={e => setRegForm({...regForm, bizName: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-sm outline-none border border-transparent focus:border-emerald-200 uppercase shadow-inner text-left text-left" />
+                 <input placeholder="Location Area" value={regForm.addr} onChange={e => setRegForm({...regForm, addr: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-sm outline-none border border-transparent focus:border-emerald-200 uppercase shadow-inner text-left text-left" />
+                 <select value={regForm.cat} onChange={e => setRegForm({...regForm, cat: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-sm outline-none border border-transparent focus:border-emerald-200 shadow-inner font-black uppercase italic text-left text-left">
+                    <option value="salon">Salon & Wellness</option><option value="travel">Transport Service</option><option value="clinic">Clinic/Doctor</option><option value="repair">Service/Repair</option>
+                 </select>
+                 <button onClick={async () => {
+                    if(!regForm.bizName || !regForm.addr) return alert("Required fields missing");
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'requests'), { uid: user.uid, ...regForm, status: 'pending', timestamp: Date.now() });
+                    alert("Application Sent!"); setView('home');
+                 }} className="w-full bg-emerald-600 text-white py-5 rounded-[2.5rem] font-black shadow-xl uppercase active:scale-95 transition-all tracking-widest font-black uppercase italic shadow-emerald-50 text-center text-center">Submit Application</button>
+              </div>
+           </div>
+        )}
+
         {/* View Selection: Confirmation */}
         {view === 'confirmation' && (
-           <div className="text-center pt-10 animate-in zoom-in-90 duration-700 pb-10 px-4">
-             <div className="w-24 h-24 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner animate-bounce border-2 border-emerald-200 shadow-xl shadow-emerald-50 text-center"><Lucide.CheckCircle2 size={48}/></div>
-             <h2 className="text-4xl font-black text-emerald-900 mb-6 uppercase tracking-tighter italic text-center">Reserved</h2>
-             <div className="bg-emerald-600 text-white p-8 rounded-[3.5rem] shadow-2xl space-y-6 relative overflow-hidden text-center shadow-emerald-200 text-white text-left">
-                <div className="absolute top-0 right-0 p-4 opacity-10"><Lucide.Clock size={100}/></div>
-                <div><p className="text-[10px] font-black uppercase opacity-60 mb-2 italic tracking-widest">Unique Booking Token</p><h3 className="text-5xl font-black tracking-widest italic">{lastBookingId}</h3></div>
-                <div className="grid grid-cols-2 gap-4 border-t border-white/10 pt-6 font-black uppercase">
-                   <div className="text-center border-r border-white/10"><p className="text-[8px] opacity-60 font-black tracking-widest">Position</p><p className="text-2xl font-black">#{queueInfo.pos}</p></div>
-                   <div className="text-center"><p className="text-[8px] opacity-60 font-black tracking-widest">Wait</p><p className="text-2xl font-black">+{queueInfo.delay}m</p></div>
+           <div className="text-center pt-10 animate-in zoom-in-90 duration-700 pb-10 px-4 text-center">
+             <div className="w-24 h-24 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner animate-bounce border-2 border-emerald-200 shadow-xl shadow-emerald-50 text-center text-center"><Lucide.CheckCircle2 size={48}/></div>
+             <h2 className="text-4xl font-black text-emerald-900 mb-6 uppercase tracking-tighter italic text-center text-center text-center">Reserved</h2>
+             <div className="bg-emerald-600 text-white p-8 rounded-[3.5rem] shadow-2xl space-y-6 relative overflow-hidden text-center shadow-emerald-200 text-white text-left text-left">
+                <div className="absolute top-0 right-0 p-4 opacity-10 text-left text-left"><Lucide.Clock size={100}/></div>
+                <div className="text-left"><p className="text-[10px] font-black uppercase opacity-60 mb-2 italic tracking-widest text-left text-left">Unique Booking Token</p><h3 className="text-5xl font-black tracking-widest italic text-left text-left text-center">{lastBookingId}</h3></div>
+                <div className="grid grid-cols-2 gap-4 border-t border-white/10 pt-6 font-black uppercase text-left text-left">
+                   <div className="text-center border-r border-white/10 text-left"><p className="text-[8px] opacity-60 font-black tracking-widest text-left text-center">Position</p><p className="text-2xl font-black text-left text-center">#{queueInfo.pos}</p></div>
+                   <div className="text-center text-left text-left"><p className="text-[8px] opacity-60 font-black tracking-widest text-left text-center">Wait</p><p className="text-2xl font-black text-left text-center">+{queueInfo.delay}m</p></div>
                 </div>
              </div>
-             <button onClick={() => setView('home')} className="w-full bg-emerald-700 text-white py-5 rounded-[2.5rem] font-black shadow-2xl active:scale-95 uppercase tracking-widest mt-12 font-black italic">Return Home</button>
+             <button onClick={() => setView('home')} className="w-full bg-emerald-700 text-white py-5 rounded-[2.5rem] font-black shadow-2xl active:scale-95 uppercase tracking-widest mt-12 font-black italic text-center text-center">Return Home</button>
            </div>
         )}
 
       </main>
 
-      {/* NAVIGATION */}
+      {/* NAVIGATION (HARD-VERIFIED INTEGRITY) */}
       <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/95 backdrop-blur-3xl border-t border-gray-100 px-8 py-5 pb-9 flex justify-between items-center z-[100] rounded-t-[3.5rem] shadow-2xl">
         <button onClick={() => setView('home')} className={`flex flex-col items-center gap-1.5 transition-all ${view === 'home' ? 'text-emerald-600 scale-110' : 'text-gray-300'}`}><Lucide.Home size={22} /><span className="text-[9px] font-black uppercase tracking-widest italic text-center">Explore</span></button>
-        <button onClick={() => setView('onboarding')} className={`flex flex-col items-center gap-1.5 transition-all ${view === 'onboarding' ? 'text-emerald-600 scale-110' : 'text-gray-300'}`}><Lucide.Building2 size={22} /><span className="text-[9px] font-black uppercase tracking-widest italic text-center">Business</span></button>
+        <button onClick={() => setView(isSessionVerified ? 'merchant_dashboard' : 'onboarding')} className={`flex flex-col items-center gap-1.5 transition-all ${['onboarding', 'merchant_dashboard'].includes(view) ? 'text-emerald-600 scale-110' : 'text-gray-300'}`}><Lucide.Building2 size={22} /><span className="text-[9px] font-black uppercase tracking-widest italic text-center">Business</span></button>
         <button onClick={() => { setView('track'); setSearchedBooking(null); }} className={`flex flex-col items-center gap-1.5 transition-all ${view === 'track' ? 'text-emerald-600 scale-110' : 'text-gray-300'}`}><Lucide.Calendar size={22} /><span className="text-[9px] font-black uppercase tracking-widest italic text-center">Track</span></button>
-        <button onClick={() => setView('account')} className={`flex flex-col items-center gap-1.5 transition-all ${['account', 'merchant_hub', 'dashboard'].includes(view) ? 'text-emerald-600 scale-110' : 'text-gray-300'}`}><Lucide.UserCircle size={22} /><span className="text-[9px] font-black uppercase tracking-widest italic font-black text-center">Account</span></button>
+        <button onClick={() => setView('account')} className={`flex flex-col items-center gap-1.5 transition-all ${view === 'account' ? 'text-emerald-600 scale-110' : 'text-gray-300'}`}><Lucide.UserCircle size={22} /><span className="text-[9px] font-black uppercase tracking-widest italic font-black text-center text-center">Account</span></button>
       </nav>
 
     </div>
