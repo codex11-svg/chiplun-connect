@@ -46,6 +46,7 @@ export default function App() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [adminAuth, setAdminAuth] = useState(false);
   const [adminPin, setAdminPin] = useState('');
+  const [adminTab, setAdminTab] = useState('requests'); // 'requests' or 'merchants'
   const [bizSubView, setBizSubView] = useState('register'); // 'register' or 'login'
 
   // Form States
@@ -140,10 +141,10 @@ export default function App() {
     setIsProcessing(true);
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'requests'), { ...regForm, status: 'pending', timestamp: Date.now(), uid: user.uid });
-      alert("Application Successful! Our onboarding team will contact you shortly.");
+      alert("Application Submitted! Wait for admin approval.");
       setRegForm({ name: '', phone: '', bizName: '', category: 'salon', address: '' });
       setView('home');
-    } catch (e) { alert("Registration Error"); } finally { setIsProcessing(false); }
+    } catch (e) { alert("Error submitting"); } finally { setIsProcessing(false); }
   };
 
   const handleVendorLogin = async () => {
@@ -155,6 +156,107 @@ export default function App() {
         setView('merchant');
       } else { alert("Invalid Credentials"); }
     } catch (e) { alert("Login Error"); } finally { setIsProcessing(false); }
+  };
+
+  // --- ADMIN PANEL FUNCTIONS ---
+  const manualApproveBusiness = async (req) => {
+    const merchantId = prompt("Enter Merchant ID (e.g. CH-SALON-01):");
+    if (!merchantId) return;
+    
+    const securityKey = prompt("Enter Security Key (Secret Phrase/Pin):");
+    if (!securityKey) return;
+
+    setIsProcessing(true);
+    try {
+      // 1. Create Business Doc in 'stores'
+      const storeRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'stores'));
+      await setDoc(storeRef, {
+        name: req.bizName,
+        category: req.category,
+        address: req.address,
+        isLive: true,
+        merchantId: merchantId.toUpperCase(),
+        image: "https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?w=800",
+        services: [{ name: 'Basic Service', price: 100, duration: 30 }],
+        staff: [{ name: 'Owner' }]
+      });
+
+      // 2. Create Login Credentials
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vendor_creds', merchantId.toUpperCase()), {
+        storeId: storeRef.id,
+        businessName: req.bizName,
+        password: securityKey
+      });
+
+      // 3. Mark Request as Approved (Delete from requests)
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', req.id));
+
+      alert(`Success! ${req.bizName} is now live.\nMerchant ID: ${merchantId.toUpperCase()}\nSecurity Key: ${securityKey}`);
+    } catch (e) {
+      alert("Approval Error");
+      console.error(e);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const rejectRequest = async (id) => {
+    if (!window.confirm("Reject this application?")) return;
+    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', id));
+  };
+
+  const purgeBusiness = async (s) => {
+    if (!window.confirm(`Permanently remove ${s.name}? This will also delete their login credentials.`)) return;
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', s.id));
+      if (s.merchantId) {
+        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vendor_creds', s.merchantId.toUpperCase()));
+      }
+      alert("Business purged successfully.");
+    } catch (e) {
+      alert("Error purging business.");
+    }
+  };
+
+  const updateMerchantId = async (store) => {
+    const newId = prompt("Enter New Merchant ID (CH-XXXX):", store.merchantId);
+    if (newId && newId.toUpperCase() !== store.merchantId) {
+      setIsProcessing(true);
+      try {
+        // Fetch old creds
+        const oldCredsRef = doc(db, 'artifacts', appId, 'public', 'data', 'vendor_creds', store.merchantId.toUpperCase());
+        const snap = await getDoc(oldCredsRef);
+        
+        if (snap.exists()) {
+          // Create new creds
+          await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vendor_creds', newId.toUpperCase()), snap.data());
+          // Delete old creds
+          await deleteDoc(oldCredsRef);
+        }
+        
+        // Update store record
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', store.id), {
+          merchantId: newId.toUpperCase()
+        });
+        
+        alert("Merchant ID updated successfully.");
+      } catch (e) {
+        alert("Update failed.");
+      } finally {
+        setIsProcessing(false);
+      }
+    }
+  };
+
+  const updateSecurityKey = async (merchantId) => {
+    if (!merchantId) return alert("Business has no valid Merchant ID");
+    const newKey = prompt("Enter new Security Key:");
+    if (newKey) {
+      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vendor_creds', merchantId.toUpperCase()), {
+        password: newKey
+      });
+      alert("Security Key updated.");
+    }
   };
 
   const completeBooking = async (id) => {
@@ -241,29 +343,14 @@ export default function App() {
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Growth Engine for Chiplun Merchants</p>
             </div>
 
-            {/* DUAL TOGGLE SWITCH */}
             <div className="flex bg-slate-200 p-1.5 rounded-[1.8rem] shadow-inner border border-slate-300 relative">
-               <div 
-                className={`absolute top-1.5 bottom-1.5 w-[calc(50%-6px)] bg-emerald-600 rounded-[1.4rem] transition-all duration-300 shadow-lg ${bizSubView === 'login' ? 'translate-x-full' : 'translate-x-0'}`}
-               />
-               <button 
-                onClick={() => setBizSubView('register')}
-                className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest relative z-10 transition-colors duration-300 ${bizSubView === 'register' ? 'text-white' : 'text-slate-500 hover:text-slate-700'}`}
-               >
-                 Join Network
-               </button>
-               <button 
-                onClick={() => setBizSubView('login')}
-                className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest relative z-10 transition-colors duration-300 ${bizSubView === 'login' ? 'text-white' : 'text-slate-500 hover:text-slate-700'}`}
-               >
-                 Merchant Login
-               </button>
+               <div className={`absolute top-1.5 bottom-1.5 w-[calc(50%-6px)] bg-emerald-600 rounded-[1.4rem] transition-all duration-300 shadow-lg ${bizSubView === 'login' ? 'translate-x-full' : 'translate-x-0'}`} />
+               <button onClick={() => setBizSubView('register')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest relative z-10 transition-colors duration-300 ${bizSubView === 'register' ? 'text-white' : 'text-slate-500 hover:text-slate-700'}`}>Join Network</button>
+               <button onClick={() => setBizSubView('login')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest relative z-10 transition-colors duration-300 ${bizSubView === 'login' ? 'text-white' : 'text-slate-500 hover:text-slate-700'}`}>Merchant Login</button>
             </div>
 
-            {/* JOIN THE NETWORK: REGISTRATION SUITE */}
             {bizSubView === 'register' && (
               <div className="space-y-6 animate-in fade-in duration-500">
-                {/* Partner Perks */}
                 <div className="grid grid-cols-2 gap-3">
                    <div className="bg-white p-5 rounded-[2rem] border border-slate-100 flex flex-col items-center text-center shadow-sm">
                       <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mb-2"><Lucide.TrendingUp size={20}/></div>
@@ -277,7 +364,6 @@ export default function App() {
                    </div>
                 </div>
 
-                {/* Registration Form */}
                 <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100 space-y-4">
                   <div className="text-center mb-6">
                     <h3 className="font-black text-xs uppercase tracking-widest italic">Professional Application</h3>
@@ -295,32 +381,27 @@ export default function App() {
                         <input value={regForm.phone} onChange={e => setRegForm({...regForm, phone: e.target.value})} className="w-full bg-slate-50 border border-slate-100 p-4 rounded-xl text-[10px] font-black uppercase outline-none focus:border-emerald-500 shadow-inner" placeholder="+91 000..." />
                       </div>
                     </div>
-                    
                     <div className="space-y-1">
                       <label className="text-[8px] font-black uppercase text-slate-400 ml-2">Business Name</label>
                       <input value={regForm.bizName} onChange={e => setRegForm({...regForm, bizName: e.target.value})} className="w-full bg-slate-50 border border-slate-100 p-4 rounded-xl text-[10px] font-black uppercase outline-none focus:border-emerald-500 shadow-inner" placeholder="E.G. SUPREME SALON" />
                     </div>
-
                     <div className="space-y-1">
                       <label className="text-[8px] font-black uppercase text-slate-400 ml-2">Business Type</label>
                       <select value={regForm.category} onChange={e => setRegForm({...regForm, category: e.target.value})} className="w-full bg-slate-50 border border-slate-100 p-4 rounded-xl text-[10px] font-black uppercase outline-none focus:border-emerald-500 shadow-inner appearance-none cursor-pointer">
                         {CATEGORIES.map(c => <option key={c.id} value={c.id} className="text-slate-900">{c.n} SERVICES</option>)}
                       </select>
                     </div>
-
                     <div className="space-y-1">
                       <label className="text-[8px] font-black uppercase text-slate-400 ml-2">Location / Area</label>
                       <input value={regForm.address} onChange={e => setRegForm({...regForm, address: e.target.value})} className="w-full bg-slate-50 border border-slate-100 p-4 rounded-xl text-[10px] font-black uppercase outline-none focus:border-emerald-500 shadow-inner" placeholder="STATION ROAD, CHIPLUN" />
                     </div>
-
                     <button onClick={submitRegistration} className="w-full bg-emerald-600 text-white py-5 rounded-[1.5rem] font-black uppercase text-[10px] tracking-widest shadow-xl shadow-emerald-100 active:scale-[0.97] transition-all">Submit Professional Profile</button>
-                    <p className="text-[7px] text-slate-400 text-center font-bold uppercase tracking-widest leading-none px-4 mt-2">By submitting, you agree to our merchant partnership terms and quality standards.</p>
+                    <button onClick={() => setView('admin')} className="w-full text-[8px] font-black text-slate-300 uppercase tracking-[0.4em] pt-4">System Overdrive Access</button>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* MERCHANT LOGIN: ACCESS DASHBOARD */}
             {bizSubView === 'login' && (
               <div className="space-y-6 animate-in fade-in duration-500 py-10">
                 <div className="text-center space-y-4">
@@ -330,7 +411,6 @@ export default function App() {
                     <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Enter Merchant Credentials to Sync Ledger</p>
                   </div>
                 </div>
-
                 <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100 space-y-4 max-w-sm mx-auto w-full">
                   <div className="space-y-4">
                     <div className="space-y-1">
@@ -344,10 +424,92 @@ export default function App() {
                     <button onClick={handleVendorLogin} className="w-full bg-emerald-600 text-white py-5 rounded-[1.5rem] font-black uppercase text-[10px] tracking-[0.2em] shadow-xl active:scale-[0.97] transition-all">Unlock Dashboard</button>
                   </div>
                 </div>
-
-                <button onClick={() => setView('admin')} className="w-full text-[8px] font-black text-slate-300 uppercase tracking-[0.4em] pt-10">System Administrator Override</button>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ADMIN OVERRIDE TERMINAL */}
+        {view === 'admin' && (
+          <div className="pt-10 space-y-6 animate-in fade-in">
+             <div className="flex justify-between items-center px-2">
+                <h2 className="text-2xl font-black text-rose-600 uppercase italic tracking-tighter">Admin Terminal</h2>
+                <button onClick={() => setView('home')} className="p-2 bg-slate-100 rounded-lg"><Lucide.Home size={18}/></button>
+             </div>
+             
+             {!adminAuth ? (
+               <div className="bg-white p-8 rounded-[3rem] shadow-2xl border border-rose-100 space-y-4">
+                 <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest text-center">Identity Verification Required</p>
+                 <input type="password" placeholder="System PIN" value={adminPin} onChange={e => setAdminPin(e.target.value)} className="w-full bg-slate-50 p-5 rounded-2xl shadow-inner border font-black text-center text-lg outline-none" />
+                 <button onClick={() => { if (adminPin === ADMIN_PIN) setAdminAuth(true); else alert("Access Denied"); }} className="w-full bg-rose-600 text-white py-5 rounded-2xl font-black shadow-xl uppercase active:scale-95">Authenticate</button>
+               </div>
+             ) : (
+               <div className="space-y-6">
+                 {/* Admin Tabs */}
+                 <div className="flex bg-slate-200 p-1 rounded-2xl">
+                    <button onClick={() => setAdminTab('requests')} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${adminTab === 'requests' ? 'bg-white text-rose-600' : 'text-slate-500'}`}>Applications ({requests.length})</button>
+                    <button onClick={() => setAdminTab('merchants')} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${adminTab === 'merchants' ? 'bg-white text-rose-600' : 'text-slate-500'}`}>Live Stores ({stores.length})</button>
+                 </div>
+
+                 {/* Tab Content: Requests */}
+                 {adminTab === 'requests' && (
+                    <div className="space-y-4 pb-20">
+                      {requests.length > 0 ? requests.map(r => (
+                        <div key={r.id} className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 space-y-4 animate-in slide-in-from-bottom-4">
+                           <div className="flex justify-between items-start">
+                              <div>
+                                 <h4 className="font-black text-sm uppercase italic tracking-tight">{r.bizName}</h4>
+                                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">{r.category} • {r.address}</p>
+                              </div>
+                              <Lucide.FileText size={20} className="text-slate-200" />
+                           </div>
+                           <div className="bg-slate-50 p-4 rounded-2xl text-[10px] font-bold uppercase space-y-1 shadow-inner border border-slate-100">
+                              <p className="flex justify-between"><span>Applicant:</span><span className="text-rose-600">{r.name}</span></p>
+                              <p className="flex justify-between"><span>Phone:</span><span className="text-rose-600">{r.phone}</span></p>
+                           </div>
+                           <div className="flex gap-2 pt-2">
+                              <button onClick={() => rejectRequest(r.id)} className="flex-1 py-4 border border-rose-100 text-rose-500 rounded-2xl font-black text-[9px] uppercase active:scale-95 transition-all">Reject</button>
+                              <button onClick={() => manualApproveBusiness(r)} disabled={isProcessing} className="flex-[2] py-4 bg-emerald-600 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest shadow-lg active:scale-95 transition-all">Manual Approve</button>
+                           </div>
+                        </div>
+                      )) : (
+                        <div className="text-center py-20 opacity-30 italic font-bold uppercase text-[10px] tracking-widest">No pending applications</div>
+                      )}
+                    </div>
+                 )}
+
+                 {/* Tab Content: Merchants */}
+                 {adminTab === 'merchants' && (
+                    <div className="space-y-4 pb-20">
+                      {stores.map(s => (
+                        <div key={s.id} className="bg-white p-5 rounded-[2.5rem] shadow-sm border border-slate-100 space-y-4 animate-in fade-in">
+                           <div className="flex justify-between items-center">
+                              <div>
+                                 <h4 className="font-black text-xs uppercase italic">{s.name}</h4>
+                                 <p className="text-[8px] font-black text-rose-600 uppercase tracking-[0.2em] mt-0.5">ID: {s.merchantId || 'LEGACY'}</p>
+                              </div>
+                              <div className="flex gap-1">
+                                 <button title="Change Merchant ID" onClick={() => updateMerchantId(s)} className="p-2 bg-slate-50 rounded-lg text-slate-400 hover:text-emerald-600 border border-slate-100"><Lucide.Settings2 size={16}/></button>
+                                 <button title="Change Security Key" onClick={() => updateSecurityKey(s.merchantId)} className="p-2 bg-slate-50 rounded-lg text-slate-400 hover:text-blue-500 border border-slate-100"><Lucide.Key size={16}/></button>
+                                 <button title="Delete Business" onClick={() => purgeBusiness(s)} className="p-2 bg-slate-50 rounded-lg text-slate-400 hover:text-rose-600 border border-slate-100"><Lucide.Trash2 size={16}/></button>
+                              </div>
+                           </div>
+                           <div className="grid grid-cols-2 gap-2 text-[8px] font-black uppercase text-slate-400">
+                              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 shadow-inner">
+                                 <p className="opacity-50 mb-1">Status</p>
+                                 <p className="text-emerald-600">{s.isLive ? 'Online' : 'Offline'}</p>
+                              </div>
+                              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 shadow-inner">
+                                 <p className="opacity-50 mb-1">Category</p>
+                                 <p className="text-slate-900">{s.category}</p>
+                              </div>
+                           </div>
+                        </div>
+                      ))}
+                    </div>
+                 )}
+               </div>
+             )}
           </div>
         )}
 
@@ -397,7 +559,7 @@ export default function App() {
           </div>
         )}
 
-        {/* MERCHANT DASHBOARD VIEW (AFTER LOGIN) */}
+        {/* MERCHANT DASHBOARD VIEW */}
         {view === 'merchant' && profile.role === 'vendor' && (
           <div className="pt-6 space-y-6 animate-in slide-in-from-bottom-8">
             <div className="flex justify-between items-center px-2">
@@ -458,33 +620,6 @@ export default function App() {
                 <button onClick={() => { const found = allBookings.find(b => b.displayId === trackInput.toUpperCase()); if (found) setTrackedBooking(found); else alert("Token not found"); }} className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black shadow-xl uppercase active:scale-95">Track Now</button>
               </div>
             )}
-          </div>
-        )}
-
-        {/* ADMIN VIEW */}
-        {view === 'admin' && (
-          <div className="pt-10 space-y-6 animate-in fade-in text-center">
-             <h2 className="text-2xl font-black text-rose-600 uppercase italic tracking-tighter">Admin Terminal</h2>
-             {!adminAuth ? (
-               <div className="space-y-4">
-                 <input type="password" placeholder="Admin PIN" value={adminPin} onChange={e => setAdminPin(e.target.value)} className="w-full bg-white p-5 rounded-2xl shadow-sm border border-slate-100 font-black text-center text-lg outline-none" />
-                 <button onClick={() => { if (adminPin === ADMIN_PIN) setAdminAuth(true); else alert("Denied"); }} className="w-full bg-rose-600 text-white py-5 rounded-2xl font-black shadow-xl uppercase active:scale-95">Authenticate</button>
-               </div>
-             ) : (
-               <div className="space-y-6 text-left">
-                  <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic ml-1">Registration Requests</h3>
-                  {requests.map(r => (
-                    <div key={r.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 space-y-2">
-                       <div className="flex justify-between">
-                         <p className="font-black text-xs uppercase">{r.bizName}</p>
-                         <span className="text-[8px] bg-amber-50 text-amber-600 px-2 py-1 rounded font-bold uppercase">{r.status}</span>
-                       </div>
-                       <p className="text-[10px] text-slate-400 font-bold uppercase">{r.name} • {r.phone}</p>
-                       <p className="text-[8px] text-slate-400 uppercase">{r.address}</p>
-                    </div>
-                  ))}
-               </div>
-             )}
           </div>
         )}
 
