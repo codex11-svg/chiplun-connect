@@ -17,7 +17,7 @@ const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = "chiplun-pro-v36-final"; 
+const appId = "chiplun-pro-v37-enterprise"; 
 const ADMIN_PIN = "112607";
 
 export default function App() {
@@ -60,7 +60,7 @@ export default function App() {
   const [newStaff, setNewStaff] = useState('');
   const [editForm, setEditForm] = useState({ name: '', address: '', image: '', category: 'salon', lunchStart: '13:00', lunchEnd: '14:00' });
 
-  // --- Real-time Sync Engine ---
+  // --- Real-time Core ---
   useEffect(() => {
     onAuthStateChanged(auth, async (u) => {
       if (!u) await signInAnonymously(auth);
@@ -117,7 +117,7 @@ export default function App() {
     }
   }, [isSessionVerified, myStore]);
 
-  // --- Helpers ---
+  // --- Logic Helpers ---
   const getStoreStatus = (store) => {
     if (!store.isLive) return { label: 'Closed', color: 'bg-rose-500', icon: <Lucide.XCircle size={10}/> };
     const now = new Date();
@@ -164,7 +164,7 @@ export default function App() {
     const cleanToken = trackInput.trim().toUpperCase();
     const found = allBookings.find(b => b.displayId?.toUpperCase() === cleanToken);
     if (found) setSearchedBooking(found);
-    else alert("Invalid ID");
+    else alert("Token not found.");
   };
 
   const handleVendorLogin = async () => {
@@ -176,7 +176,7 @@ export default function App() {
         role: 'vendor', status: 'approved', businessId: snap.data().uid, businessName: snap.data().businessName
       });
       setIsSessionVerified(true);
-    } else alert("Invalid ID or Key");
+    } else alert("Invalid Credentials");
     setIsProcessing(false);
   };
 
@@ -236,7 +236,7 @@ export default function App() {
              </div>
 
              <section className="animate-in slide-in-from-bottom-4 pb-10 text-left">
-               <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 ml-1 italic font-black">Marketplace Core</h2>
+               <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 ml-1 italic font-black">Live Marketplace</h2>
                <div className="space-y-4">
                  {filteredStores.map(store => {
                    const status = getStoreStatus(store);
@@ -269,9 +269,10 @@ export default function App() {
                <h2 className="text-2xl font-black italic text-emerald-900 uppercase tracking-tighter">{selectedStore.name}</h2>
                <p className="text-gray-400 text-xs mb-8 flex items-center italic font-medium"><Lucide.MapPin size={12} className="mr-1"/> {selectedStore.address}</p>
                
+               {/* CATEGORY LOGIC */}
                {selectedStore.category === 'travel' && (
                   <div className="space-y-4 mb-8 p-6 bg-blue-50/50 rounded-[2.5rem] border border-blue-100 animate-in fade-in">
-                    <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest text-center italic">Transportation Specs</p>
+                    <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest text-center italic">Route Specs</p>
                     <div className="grid grid-cols-2 gap-3">
                        <input placeholder="Source" onChange={e => setBookingMeta({...bookingMeta, source: e.target.value})} className="bg-white p-3 rounded-2xl text-xs font-bold outline-none border border-blue-200 uppercase shadow-inner" />
                        <input placeholder="Destination" onChange={e => setBookingMeta({...bookingMeta, destination: e.target.value})} className="bg-white p-3 rounded-2xl text-xs font-bold outline-none border border-blue-200 uppercase shadow-inner" />
@@ -298,19 +299,22 @@ export default function App() {
                       <input type="date" onChange={e => setBookingMeta({...bookingMeta, date: e.target.value})} className="flex-1 bg-gray-50 p-4 rounded-2xl font-bold text-sm outline-none border border-gray-100 shadow-inner" />
                       <input type="time" onChange={e => setBookingMeta({...bookingMeta, time: e.target.value})} className="w-32 bg-gray-50 p-4 rounded-2xl font-bold text-sm outline-none border border-gray-100 shadow-inner" />
                    </div>
+                   
                    {isMerchantOnBreak(bookingMeta.time, selectedStore) && (
                       <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 flex items-center gap-3 animate-pulse">
                          <Lucide.Coffee size={20} className="text-amber-600"/>
-                         <p className="text-[9px] font-black text-amber-800 uppercase italic leading-tight">Merchant on lunch ({selectedStore.lunchStart} to {selectedStore.lunchEnd}). Pick another time.</p>
+                         <p className="text-[9px] font-black text-amber-800 uppercase italic leading-tight">Merchant on break ({selectedStore.lunchStart} to {selectedStore.lunchEnd}). Pick another time.</p>
                       </div>
                    )}
+
                    <select onChange={e => setBookingMeta({...bookingMeta, resourceName: e.target.value})} className="w-full bg-gray-50 p-4 rounded-2xl outline-none font-bold text-sm shadow-inner">
-                      <option value="">{selectedStore.category === 'salon' ? 'Select Stylist' : selectedStore.category === 'travel' ? 'Select Vehicle' : selectedStore.category === 'clinic' ? 'Select Doctor' : 'Select Expert'}</option>
+                      <option value="">{selectedStore.category === 'salon' ? 'Select Stylist' : selectedStore.category === 'travel' ? 'Select Driver' : selectedStore.category === 'clinic' ? 'Select Doctor' : 'Select Expert'}</option>
                       {selectedStore.staff?.map((st, i) => {
                          const busy = isSpecialistBusy(st, bookingMeta.date, bookingMeta.time);
                          return <option key={i} value={st} disabled={busy}>{st} {busy ? '(BUSY)' : ''}</option>
                       })}
                    </select>
+
                    <input placeholder="WhatsApp Phone" type="tel" value={bookingMeta.custPhone} onChange={e => setBookingMeta({...bookingMeta, custPhone: e.target.value})} className="w-full bg-gray-50 p-4 rounded-2xl font-bold text-sm outline-none border border-gray-100 uppercase shadow-inner" />
                    <button disabled={!bookingMeta.date || !bookingMeta.time || isMerchantOnBreak(bookingMeta.time, selectedStore)} onClick={() => setShowConfirmModal(true)} className="w-full bg-emerald-600 text-white py-5 rounded-3xl font-black shadow-xl uppercase active:scale-95 transition-all tracking-widest disabled:opacity-40">
                       {isMerchantOnBreak(bookingMeta.time, selectedStore) ? 'Merchant on Break' : 'Review & Secure'}
@@ -321,7 +325,7 @@ export default function App() {
            </div>
         )}
 
-        {/* VIEW: MERCHANT ACCOUNT (Management Hub) */}
+        {/* VIEW: ACCOUNT (Token Wallet) */}
         {view === 'account' && (
            <div className="pt-4 space-y-6 px-4 pb-10 animate-in slide-in-from-bottom-4 text-left">
               {!isSessionVerified ? (
@@ -331,33 +335,33 @@ export default function App() {
                        <Lucide.UserCircle size={40} className="text-emerald-600 p-2 bg-emerald-50 rounded-2xl shadow-inner"/>
                     </div>
                     
-                    {/* CUSTOMER TOKENS WALLET */}
+                    {/* PERSISTENT TOKEN WALLET */}
                     <section className="space-y-4 mb-10 text-left">
                        <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 italic">Personal Token Wallet</h3>
                        {myBookings.length > 0 ? (
                          <div className="space-y-3">
                             {myBookings.map((b, i) => (
-                               <div key={i} className="bg-white p-5 rounded-[2rem] border border-gray-100 flex justify-between items-center shadow-sm" onClick={() => {setTrackInput(b.displayId); setView('track'); handleTrackToken();}}>
-                                  <div><p className="font-bold text-sm">{b.storeName}</p><p className="text-[8px] text-gray-400 uppercase font-black">{b.date} • {b.time}</p></div>
-                                  <span className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-xl text-[10px] font-black tracking-widest shadow-sm">{b.displayId}</span>
+                               <div key={i} className="bg-white p-5 rounded-[2rem] border border-gray-100 flex justify-between items-center shadow-sm hover:border-emerald-200 transition-all cursor-pointer" onClick={() => {setTrackInput(b.displayId); setView('track'); handleTrackToken();}}>
+                                  <div><p className="font-bold text-sm text-gray-800 uppercase tracking-tight">{b.storeName}</p><p className="text-[8px] text-gray-400 uppercase font-black">{b.date} • {b.time}</p></div>
+                                  <span className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-xl text-[10px] font-black tracking-widest italic shadow-sm">{b.displayId}</span>
                                </div>
                             ))}
                          </div>
                        ) : (
                          <div className="py-12 bg-white rounded-[2.5rem] border border-gray-100 text-center space-y-2">
                             <Lucide.Wallet size={32} className="mx-auto text-gray-100" />
-                            <p className="text-gray-300 font-black uppercase text-[8px] tracking-widest">No Active Bookings</p>
+                            <p className="text-gray-300 font-black uppercase text-[8px] tracking-widest">No Tokens Yet</p>
                          </div>
                        )}
                     </section>
 
                     {/* MERCHANT ENTRANCE */}
                     <section className="bg-gray-100 p-6 rounded-[3rem] border border-gray-200 mt-12">
-                       <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-4 flex items-center italic font-black uppercase"><Lucide.ShieldCheck size={14} className="mr-2"/> Merchant Authentication</h3>
+                       <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-4 flex items-center italic font-black uppercase"><Lucide.ShieldCheck size={14} className="mr-2"/> Merchant Entrance</h3>
                        <div className="space-y-3">
                           <input placeholder="Merchant User ID" value={vendorLogin.id} onChange={e => setVendorLogin({...vendorLogin, id: e.target.value})} className="w-full bg-white p-4 rounded-2xl font-bold text-sm outline-none border-2 border-transparent focus:border-emerald-500 shadow-sm" />
                           <input type="password" placeholder="Passcode" value={vendorLogin.pass} onChange={e => setVendorLogin({...vendorLogin, pass: e.target.value})} className="w-full bg-white p-4 rounded-2xl font-bold text-sm outline-none border-2 border-transparent focus:border-emerald-500 shadow-sm" />
-                          <button onClick={handleVendorLogin} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black shadow-xl active:scale-95 transition-all text-xs uppercase tracking-widest">Authorize Access</button>
+                          <button onClick={handleVendorLogin} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black shadow-xl active:scale-95 transition-all text-xs uppercase tracking-widest">Authorize Session</button>
                        </div>
                     </section>
                  </div>
@@ -371,24 +375,20 @@ export default function App() {
                          <p className="text-[8px] font-black uppercase text-gray-400 mb-1">Today's Revenue</p>
                          <p className="text-xl font-black text-emerald-600">₹{todayRevenue}</p>
                       </div>
-                      <button onClick={() => {
-                         navigator.clipboard.writeText(`${window.location.origin}/#store=${profile.businessId}`);
-                         alert("Shareable Link Copied to Clipboard!");
-                      }} className="bg-white p-5 rounded-[2.5rem] border border-gray-100 shadow-sm flex flex-col items-center active:scale-95 transition-all">
+                      <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/#store=${profile.businessId}`); alert("Store Link Copied!"); }} className="bg-white p-5 rounded-[2.5rem] border border-gray-100 shadow-sm flex flex-col items-center active:scale-95 transition-all">
                          <Lucide.QrCode size={20} className="text-emerald-600 mb-1"/>
                          <p className="text-[8px] font-black uppercase text-emerald-900">Share QR Link</p>
                       </button>
                    </div>
 
-                   {/* MERCHANT LEDGER */}
+                   {/* LIVE QUEUE LEDGER */}
                    <section className="bg-emerald-600 text-white p-7 rounded-[3rem] shadow-xl space-y-4 border border-black/5">
                       <h3 className="text-[10px] font-black uppercase tracking-widest flex items-center opacity-80 italic font-black font-black uppercase tracking-widest"><Lucide.Calendar size={14} className="mr-2"/> Active Queue</h3>
                       <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
                         {merchantBookings.length > 0 ? merchantBookings.sort((a,b) => b.timestamp - a.timestamp).map((b, i) => (
                            <div key={i} className="bg-white/10 p-4 rounded-2xl border border-white/5 space-y-1 animate-in fade-in">
-                              <div className="flex justify-between font-black text-[11px] uppercase italic text-white"><span>{b.custName || 'Guest'}</span><span className="text-emerald-200">#{b.displayId}</span></div>
-                              {/* SERVICES DISPLAY */}
-                              <div className="bg-emerald-700/50 px-3 py-1 rounded-xl inline-block mt-1"><p className="text-[9px] font-black text-emerald-50 uppercase tracking-tighter italic font-black">Services: {b.services?.map(s => s.name).join(', ')}</p></div>
+                              <div className="flex justify-between font-black text-[11px] uppercase italic"><span>{b.custName || 'Guest'}</span><span className="text-emerald-200">#{b.displayId}</span></div>
+                              <div className="bg-emerald-700/50 px-3 py-1 rounded-xl inline-block mt-1"><p className="text-[9px] font-black text-emerald-50 uppercase tracking-tighter italic font-black">Booked: {b.services?.map(s => s.name).join(', ')}</p></div>
                               <p className="text-[9px] opacity-70 uppercase font-bold tracking-widest block pt-1">{b.date} • {b.time} • {b.resourceName || 'Assigned'}</p>
                               <div className="pt-2 flex justify-between items-center">
                                  <span className="text-[10px] font-black uppercase text-emerald-200 flex items-center gap-1"><Lucide.Phone size={10}/> {b.custPhone}</span>
@@ -406,14 +406,13 @@ export default function App() {
                         <div className="space-y-1"><p className="text-[8px] font-black text-gray-400 ml-1 uppercase">Lunch Start</p><input type="time" value={editForm.lunchStart} onChange={e => setEditForm({...editForm, lunchStart: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" /></div>
                         <div className="space-y-1"><p className="text-[8px] font-black text-gray-400 ml-1 uppercase">Lunch End</p><input type="time" value={editForm.lunchEnd} onChange={e => setEditForm({...editForm, lunchEnd: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" /></div>
                       </div>
-                      <input placeholder="Store Image URL" value={editForm.image} onChange={e => setEditForm({...editForm, image: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" />
-                      <input placeholder="Shop Name" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" />
-                      <button onClick={async () => { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), editForm); alert("Sync Complete!"); }} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] shadow-lg active:scale-95 transition-all">Save Operations</button>
+                      <input placeholder="Image URL (Logo)" value={editForm.image} onChange={e => setEditForm({...editForm, image: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" />
+                      <input placeholder="Shop Name" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border" />
+                      <button onClick={async () => { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), editForm); alert("Updated!"); }} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] shadow-lg active:scale-95 transition-all">Save Operations</button>
                    </section>
 
-                   {/* UI: SERVICE MENU MANAGEMENT */}
                    <section className="bg-white p-7 rounded-[3rem] shadow-sm border border-gray-100">
-                      <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6 font-black uppercase tracking-widest italic">Service Price List</h3>
+                      <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6 font-black uppercase tracking-widest italic">Service Menu</h3>
                       <div className="space-y-3 mb-6 max-h-40 overflow-y-auto pr-1">
                         {myStore?.services?.map((s, i) => (
                            <div key={i} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl font-bold text-sm border border-gray-100">
@@ -467,12 +466,12 @@ export default function App() {
                    </div>
                    <div className="space-y-4 text-sm font-bold relative z-10 border-t border-white/10 pt-6">
                       <div className="grid grid-cols-2 gap-4">
-                         <div><p className="opacity-60 text-[8px] uppercase mb-1 tracking-widest font-black">Queue Position</p><p className="text-xl font-black">#{searchedBooking.queuePos || '1'}</p></div>
+                         <div><p className="opacity-60 text-[8px] uppercase mb-1 tracking-widest font-black">Queue Pos</p><p className="text-xl font-black">#{searchedBooking.queuePos || '1'}</p></div>
                          <div><p className="opacity-60 text-[8px] uppercase mb-1 tracking-widest font-black">Live Status</p><p className="text-lg uppercase">{searchedBooking.status || 'Pending'}</p></div>
                       </div>
                       <div className="bg-white/10 p-4 rounded-3xl"><p className="opacity-60 text-[8px] uppercase mb-1 italic text-emerald-100 font-black tracking-widest">Appointment Timing</p><p className="font-black italic">{searchedBooking.date} • {searchedBooking.time}</p></div>
                    </div>
-                   <button onClick={() => {setSearchedBooking(null); setTrackInput('');}} className="w-full mt-10 py-3 text-[10px] font-black uppercase bg-white/10 rounded-2xl active:scale-95 transition-all">New Search</button>
+                   <button onClick={() => {setSearchedBooking(null); setTrackInput('');}} className="w-full mt-10 py-3 text-[10px] font-black uppercase bg-white/10 rounded-2xl active:scale-95 transition-all">Clear & New Search</button>
                 </div>
               ) : (
                 <p className="text-center py-20 text-gray-300 text-[10px] font-black uppercase tracking-widest animate-pulse italic font-black leading-relaxed">Privacy Guard Active • Use unique token</p>
@@ -480,46 +479,60 @@ export default function App() {
            </div>
         )}
 
-        {/* ADMIN Portal PIN 112607 */}
+        {/* VIEW: ADMIN Portal (FIXED Overlapping) */}
         {view === 'admin' && (
            <div className="pt-20 text-center animate-in zoom-in-95 px-4">
               <Lucide.Lock className="mx-auto text-emerald-600 mb-6" size={48} />
               <input type="password" maxLength={6} value={adminPinInput} onChange={e => setAdminPinInput(e.target.value)} className="w-48 text-center text-6xl font-black border-b-4 border-emerald-100 outline-none bg-transparent mb-12 tracking-[0.2em]" />
-              <button onClick={() => { if(adminPinInput===ADMIN_PIN) setView('admin_panel'); else setAdminPinInput(''); }} className="w-full bg-emerald-600 text-white py-5 rounded-[2rem] font-black shadow-2xl active:scale-95 uppercase tracking-widest font-black uppercase italic">Verify Master Panel</button>
+              <button onClick={() => { if(adminPinInput===ADMIN_PIN) setView('admin_panel'); else setAdminPinInput(''); }} className="w-full bg-emerald-600 text-white py-5 rounded-[2rem] font-black shadow-2xl active:scale-95 uppercase tracking-widest font-black uppercase italic">Unlock Master Panel</button>
            </div>
         )}
 
         {view === 'admin_panel' && (
-          <div className="pt-4 space-y-6 pb-20 px-4 text-left">
-            <h2 className="text-2xl font-black text-emerald-900 uppercase italic tracking-tighter text-center">System Engine</h2>
+          <div className="pt-4 space-y-8 pb-32 px-4 text-left flex flex-col h-full">
+            <div className="flex justify-between items-center mb-2">
+               <h2 className="text-2xl font-black text-emerald-900 uppercase italic tracking-tighter">Enterprise Hub</h2>
+               <button onClick={() => setView('home')} className="bg-gray-100 p-2 rounded-xl text-gray-400 active:scale-90"><Lucide.XCircle size={18}/></button>
+            </div>
+
+            {/* DIRECTORY SECTION */}
             <div className="space-y-4">
-              {stores.map(s => (
-                <div key={s.id} className="bg-white p-5 rounded-[2.5rem] border border-gray-100 flex items-center gap-4 animate-in fade-in shadow-sm">
-                   <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center font-black text-emerald-600 uppercase shadow-inner text-xl">{s.name[0]}</div>
-                   <div className="flex-1 font-bold text-sm uppercase">{s.name} <span className="block text-[8px] opacity-40 italic font-black">{s.category} • ID: {s.merchantId}</span></div>
-                   <button onClick={() => setDeleteTarget(s)} className="text-rose-500 p-3 active:bg-rose-50 rounded-xl transition-all shadow-sm hover:text-rose-600"><Lucide.Trash2 size={24}/></button>
-                </div>
-              ))}
-              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mt-10 italic">Application Feed</h3>
-              <div className="space-y-4">
+              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 italic">Verified Directory</h3>
+              <div className="space-y-4 max-h-[35vh] overflow-y-auto pr-1">
+                {stores.map(s => (
+                  <div key={s.id} className="bg-white p-5 rounded-[2.5rem] border border-gray-100 flex items-center gap-4 animate-in fade-in shadow-sm">
+                    <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center font-black text-emerald-600 uppercase shadow-inner text-xl">{s.name[0]}</div>
+                    <div className="flex-1 font-bold text-sm uppercase">{s.name} <span className="block text-[8px] opacity-40 italic font-black">{s.category} • ID: {s.merchantId}</span></div>
+                    <button onClick={() => setDeleteTarget(s)} className="text-rose-400 p-3 active:bg-rose-50 rounded-xl transition-all shadow-sm"><Lucide.Trash2 size={24}/></button>
+                  </div>
+                ))}
+                {stores.length === 0 && <p className="text-center py-6 text-[9px] text-gray-300 font-black uppercase italic">No active businesses</p>}
+              </div>
+            </div>
+
+            {/* APPLICATION INBOX SECTION */}
+            <div className="space-y-4 border-t border-gray-100 pt-8">
+              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 italic">Application Inbox</h3>
+              <div className="space-y-4 pr-1">
                  {requests.filter(r => r.status === 'pending').map(req => (
                     <div key={req.id} className="bg-amber-50 p-7 rounded-[3rem] space-y-4 border border-amber-100 shadow-sm animate-in fade-in text-left">
                        <h4 className="font-bold text-sm uppercase italic">{req.bizName}</h4>
                        <div className="flex gap-2">
-                         <input id={`id-${req.id}`} placeholder="Issue ID" className="flex-1 p-3 rounded-xl text-xs font-bold outline-none uppercase border border-amber-200" />
-                         <input id={`pw-${req.id}`} placeholder="Set Pass" className="w-20 p-3 rounded-xl text-xs font-bold outline-none border border-amber-200" />
+                         <input id={`id-${req.id}`} placeholder="Assign ID" className="flex-1 p-3 rounded-xl text-xs font-bold outline-none uppercase border border-amber-200 shadow-inner" />
+                         <input id={`pw-${req.id}`} placeholder="Passcode" className="w-24 p-3 rounded-xl text-xs font-bold outline-none border border-amber-200 shadow-inner" />
                        </div>
                        <button onClick={async () => {
                            const mid = document.getElementById(`id-${req.id}`).value;
                            const pass = document.getElementById(`pw-${req.id}`).value;
-                           if(!mid || !pass) return;
+                           if(!mid || !pass) return alert("Fill data");
                            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vendor_creds', mid.toUpperCase()), { password: pass, uid: req.uid, businessName: req.bizName });
                            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', req.id), { status: 'approved' });
                            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', req.uid), { name: req.bizName, address: req.addr, category: req.cat || 'salon', ownerId: req.uid, merchantId: mid.toUpperCase(), isLive: false, services: [], staff: [], image: "", lunchStart: '13:00', lunchEnd: '14:00' });
-                           alert("Approved!");
+                           alert("Authorized!");
                         }} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] shadow-lg shadow-emerald-100 italic">Approve Business</button>
                     </div>
                  ))}
+                 {requests.filter(r => r.status === 'pending').length === 0 && <p className="text-center py-6 text-[9px] text-gray-300 font-black uppercase italic">No pending requests</p>}
               </div>
             </div>
           </div>
@@ -527,17 +540,17 @@ export default function App() {
 
         {/* ONBOARDING */}
         {view === 'onboarding' && (
-           <div className="pt-4 space-y-6 animate-in slide-in-from-bottom-4 px-4 pb-20 text-center">
+           <div className="pt-4 space-y-6 animate-in slide-in-from-bottom-4 px-4 pb-20 text-center text-left">
               <div className="text-center mb-10">
                  <Lucide.Building2 size={56} className="mx-auto text-emerald-600 mb-2 p-4 bg-emerald-50 rounded-[2.5rem] shadow-inner" />
                  <h2 className="text-3xl font-black uppercase tracking-tighter text-emerald-900 italic">Apply to join</h2>
-                 <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest text-center">Register business for MH-08</p>
+                 <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest text-center">Verification intake for Chiplun</p>
               </div>
               <div className="bg-white p-7 rounded-[3.5rem] shadow-xl space-y-4 border border-gray-100 text-left text-xs font-black uppercase">
                  <input placeholder="Official Shop Name" value={regForm.bizName} onChange={e => setRegForm({...regForm, bizName: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-sm outline-none border border-transparent focus:border-emerald-200 uppercase shadow-inner" />
                  <input placeholder="Location Area" value={regForm.addr} onChange={e => setRegForm({...regForm, addr: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-sm outline-none border border-transparent focus:border-emerald-200 uppercase shadow-inner" />
                  <select value={regForm.cat} onChange={e => setRegForm({...regForm, cat: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-sm outline-none border border-transparent focus:border-emerald-200 shadow-inner font-black uppercase">
-                    <option value="salon">Salon & Wellness</option><option value="travel">Transport Service</option><option value="clinic">Clinic/Doctor</option><option value="repair">Service/Repair</option>
+                    <option value="salon">Salon & Spa</option><option value="travel">Transport Service</option><option value="clinic">Clinic/Doctor</option><option value="repair">Repair Service</option>
                  </select>
                  <button onClick={async () => {
                     if(!regForm.bizName || !regForm.addr) return alert("Required fields missing");
@@ -556,7 +569,7 @@ export default function App() {
              <div className="bg-emerald-600 text-white p-8 rounded-[3.5rem] shadow-2xl space-y-6 relative overflow-hidden text-center shadow-emerald-200">
                 <div className="absolute top-0 right-0 p-4 opacity-10"><Lucide.Clock size={100}/></div>
                 <div><p className="text-[10px] font-black uppercase opacity-60 mb-2 italic tracking-widest">Unique Booking Token</p><h3 className="text-5xl font-black tracking-widest italic">{lastBookingId}</h3></div>
-                <div className="grid grid-cols-2 gap-4 border-t border-white/10 pt-6 font-black uppercase">
+                <div className="grid grid-cols-2 gap-4 border-t border-white/10 pt-6 font-black uppercase text-white">
                    <div className="text-center border-r border-white/10"><p className="text-[8px] opacity-60 font-black tracking-widest">Position</p><p className="text-2xl font-black">#{queueInfo.pos}</p></div>
                    <div className="text-center"><p className="text-[8px] opacity-60 font-black tracking-widest">Wait</p><p className="text-2xl font-black">+{queueInfo.delay}m</p></div>
                 </div>
