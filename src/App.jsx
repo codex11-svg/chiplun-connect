@@ -17,7 +17,7 @@ const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = "chiplun-pro-v40-stable"; 
+const appId = "chiplun-pro-v42-master"; 
 const ADMIN_PIN = "112607";
 
 export default function App() {
@@ -28,13 +28,13 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSessionVerified, setIsSessionVerified] = useState(false);
   
-  // Data Registry
+  // Enterprise Data Registry
   const [stores, setStores] = useState([]);
   const [allBookings, setAllBookings] = useState([]);
   const [requests, setRequests] = useState([]);
   const [myBookings, setMyBookings] = useState([]); 
   
-  // Enterprise UI States
+  // UI Interaction States
   const [searchQuery, setSearchQuery] = useState('');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -44,8 +44,7 @@ export default function App() {
   const [bookingMeta, setBookingMeta] = useState({
     date: '', time: '', resourceName: '', custName: '', custPhone: '',
     paymentMethod: 'Cash at Store',
-    source: '', destination: '', patientAge: '', consultType: 'General',
-    brandModel: '', fault: '' 
+    source: '', destination: '', patientAge: '', brandModel: ''
   });
 
   const [queueInfo, setQueueInfo] = useState({ pos: 1, delay: 0 });
@@ -61,7 +60,7 @@ export default function App() {
   const [newStaff, setNewStaff] = useState('');
   const [editForm, setEditForm] = useState({ name: '', address: '', image: '', category: 'salon', lunchStart: '13:00', lunchEnd: '14:00' });
 
-  // --- Real-time Listeners ---
+  // --- Real-time Core ---
   useEffect(() => {
     onAuthStateChanged(auth, async (u) => {
       if (!u) await signInAnonymously(auth);
@@ -85,7 +84,7 @@ export default function App() {
     return () => unsubs.forEach(fn => fn());
   }, [user]);
 
-  // Derived Memos
+  // Derived Intelligence
   const myStore = useMemo(() => stores.find(s => s.id === profile.businessId), [stores, profile.businessId]);
   const merchantBookings = useMemo(() => profile.businessId ? allBookings.filter(b => b.storeId === profile.businessId && b.status !== 'completed') : [], [allBookings, profile.businessId]);
   const todayRevenue = useMemo(() => profile.businessId ? allBookings.filter(b => b.storeId === profile.businessId && b.status === 'completed').reduce((a, b) => a + (Number(b.totalPrice) || 0), 0) : 0, [allBookings, profile.businessId]);
@@ -93,15 +92,11 @@ export default function App() {
 
   useEffect(() => {
     if (isSessionVerified && myStore) {
-      setEditForm({ 
-        name: myStore.name, address: myStore.address, image: myStore.image || '', 
-        category: myStore.category || 'salon',
-        lunchStart: myStore.lunchStart || '13:00', lunchEnd: myStore.lunchEnd || '14:00'
-      });
+      setEditForm({ name: myStore.name, address: myStore.address, image: myStore.image || '', category: myStore.category || 'salon', lunchStart: myStore.lunchStart || '13:00', lunchEnd: myStore.lunchEnd || '14:00' });
     }
   }, [isSessionVerified, myStore]);
 
-  // --- Logic Helpers ---
+  // --- Helpers ---
   const getStoreStatus = (store) => {
     if (!store.isLive) return { label: 'Closed', color: 'bg-rose-500', icon: <Lucide.XCircle size={10}/> };
     const now = new Date();
@@ -129,18 +124,19 @@ export default function App() {
     const payload = { ...bookingMeta, displayId: token, services: cart, totalPrice: cart.reduce((a, b) => a + Number(b.price), 0), queuePos: pos, estWait: delay, status: 'pending', storeId: selectedStore.id, storeName: selectedStore.name, timestamp: Date.now() };
 
     try {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'bookings'), payload);
-      await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'bookings'), payload);
+      const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'bookings'), payload);
+      await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'bookings'), { ...payload, globalId: docRef.id });
       setLastBookingId(token);
       setQueueInfo({ pos, delay });
       setIsProcessing(false);
       setView('confirmation');
-    } catch (e) { alert("Error"); setIsProcessing(false); }
+    } catch (e) { alert("Network Error"); setIsProcessing(false); }
   };
 
   const handleTrackToken = () => {
     if (!trackInput) return;
-    const found = allBookings.find(b => b.displayId?.toUpperCase() === trackInput.trim().toUpperCase());
+    const cleanToken = trackInput.trim().toUpperCase();
+    const found = allBookings.find(b => b.displayId?.toUpperCase() === cleanToken);
     if (found) setSearchedBooking(found);
     else alert("Token not found.");
   };
@@ -154,7 +150,7 @@ export default function App() {
         role: 'vendor', status: 'approved', businessId: snap.data().storeId, businessName: snap.data().businessName
       });
       setIsSessionVerified(true);
-    } else alert("Invalid Credentials");
+    } else alert("Invalid Merchant ID or Key");
     setIsProcessing(false);
   };
 
@@ -163,15 +159,15 @@ export default function App() {
   return (
     <div className="max-w-md mx-auto bg-gray-50 min-h-screen flex flex-col shadow-2xl relative font-sans text-gray-900 overflow-x-hidden">
       
-      {/* FINAL MODAL */}
+      {/* FINAL BOOKING MODAL */}
       {showConfirmModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[500] flex items-center justify-center p-6 animate-in zoom-in-95 text-left">
            <div className="bg-white w-full rounded-[3.5rem] p-10 shadow-2xl">
               <Lucide.ShieldCheck size={48} className="text-emerald-500 mx-auto mb-4" />
               <h3 className="text-xl font-black text-center mb-6 uppercase tracking-tighter italic">Confirm Booking</h3>
-              <div className="bg-gray-50 p-6 rounded-3xl space-y-3 mb-8 text-[10px] font-black uppercase border border-gray-100 shadow-inner text-gray-700">
-                 <div className="flex justify-between"><span>Provider:</span><span className="text-emerald-700">{bookingMeta.resourceName || 'Assigned'}</span></div>
-                 <div className="flex justify-between"><span>Schedule:</span><span>{bookingMeta.time}</span></div>
+              <div className="bg-gray-50 p-6 rounded-3xl space-y-3 mb-8 text-[10px] font-black uppercase border border-gray-100 shadow-inner text-left text-gray-700">
+                 <div className="flex justify-between"><span>Merchant:</span><span className="text-emerald-800">{selectedStore?.name}</span></div>
+                 <div className="flex justify-between"><span>Provider:</span><span>{bookingMeta.resourceName || 'Assigned'}</span></div>
                  <div className="flex justify-between border-t border-gray-200 pt-3"><span>Payable:</span><span className="text-xl font-black text-emerald-600">₹{cart.reduce((a, b) => a + Number(b.price), 0)}</span></div>
               </div>
               <button disabled={isProcessing} onClick={handleFinalConfirm} className="w-full bg-emerald-600 text-white py-5 rounded-[2.5rem] font-black uppercase text-xs shadow-xl active:scale-95 transition-all">Verifying & Booking...</button>
@@ -180,13 +176,13 @@ export default function App() {
         </div>
       )}
 
-      {/* DELETE MODAL */}
+      {/* ADMIN PURGE MODAL */}
       {deleteTarget && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[500] flex items-center justify-center p-6 animate-in fade-in text-center">
            <div className="bg-white w-full rounded-[3rem] p-10 shadow-2xl border-2 border-rose-100">
               <Lucide.Trash2 size={40} className="text-rose-500 mx-auto mb-4" />
-              <h3 className="text-xl font-black">Destroy Store?</h3>
-              <p className="text-gray-400 text-xs mt-3 mb-8 leading-relaxed">Wipe <span className="font-bold underline">{deleteTarget.name}</span> and revoke all access forever.</p>
+              <h3 className="text-xl font-black uppercase tracking-tighter">Destroy Business?</h3>
+              <p className="text-gray-400 text-xs mt-3 mb-8 leading-relaxed font-bold uppercase tracking-widest italic">Wiping <span className="underline">{deleteTarget.name}</span> will erase all records forever.</p>
               <button onClick={async () => {
                 setIsProcessing(true);
                 await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', deleteTarget.id));
@@ -195,17 +191,18 @@ export default function App() {
                 reqSnap.forEach(async (d) => await deleteDoc(d.ref));
                 setDeleteTarget(null);
                 setIsProcessing(false);
-              }} className="w-full bg-rose-500 text-white py-5 rounded-2xl font-black uppercase text-xs mb-3 shadow-xl">Purge Entire Data</button>
+              }} className="w-full bg-rose-500 text-white py-5 rounded-2xl font-black uppercase text-xs mb-3 shadow-xl">Confirm Delete</button>
               <button onClick={() => setDeleteTarget(null)} className="w-full py-4 text-gray-400 font-bold text-xs uppercase">Cancel</button>
            </div>
         </div>
       )}
 
+      {/* HEADER */}
       <header className="bg-emerald-600 text-white p-6 pb-12 rounded-b-[4rem] shadow-lg sticky top-0 z-50">
         <div className="flex justify-between items-center mb-6">
           <div onClick={() => setView('home')} className="cursor-pointer active:scale-95 transition-all text-left">
             <h1 className="text-2xl font-black tracking-tighter italic">ChiplunConnect</h1>
-            <p className="text-[9px] font-bold opacity-70 uppercase tracking-widest italic font-black">Nexus Enterprise • MH-08</p>
+            <p className="text-[9px] font-bold opacity-70 uppercase tracking-widest italic font-black">Pro Enterprise • MH-08</p>
           </div>
           <button onClick={() => setView('admin')} className="w-10 h-10 bg-white/10 rounded-2xl flex items-center justify-center border border-white/5 active:bg-white/30 shadow-inner"><Lucide.Lock size={20}/></button>
         </div>
@@ -232,7 +229,7 @@ export default function App() {
              </div>
 
              <section className="animate-in slide-in-from-bottom-4 pb-10 text-left">
-               <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 ml-1 italic font-black">Marketplace</h2>
+               <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 ml-1 italic font-black">Live Businesses</h2>
                <div className="space-y-4">
                  {filteredStores.map(store => {
                    const status = getStoreStatus(store);
@@ -265,13 +262,23 @@ export default function App() {
                <h2 className="text-2xl font-black italic text-emerald-900 uppercase tracking-tighter">{selectedStore.name}</h2>
                <p className="text-gray-400 text-xs mb-8 flex items-center italic font-medium text-left"><Lucide.MapPin size={12} className="mr-1"/> {selectedStore.address}</p>
                
-               {/* CATEGORY LOGIC */}
+               {/* CATEGORY LOGIC FIELDS */}
                {selectedStore.category === 'travel' && (
                   <div className="space-y-4 mb-8 p-6 bg-blue-50/50 rounded-[2.5rem] border border-blue-100 animate-in fade-in">
                     <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest text-center italic font-black">Route Specs</p>
                     <div className="grid grid-cols-2 gap-3">
-                       <input placeholder="Source" onChange={e => setBookingMeta({...bookingMeta, source: e.target.value})} className="bg-white p-3 rounded-2xl text-xs font-bold outline-none border border-blue-200 uppercase shadow-inner" />
+                       <input placeholder="Source Area" onChange={e => setBookingMeta({...bookingMeta, source: e.target.value})} className="bg-white p-3 rounded-2xl text-xs font-bold outline-none border border-blue-200 uppercase shadow-inner" />
                        <input placeholder="Destination" onChange={e => setBookingMeta({...bookingMeta, destination: e.target.value})} className="bg-white p-3 rounded-2xl text-xs font-bold outline-none border border-blue-200 uppercase shadow-inner" />
+                    </div>
+                  </div>
+               )}
+
+               {selectedStore.category === 'clinic' && (
+                  <div className="space-y-4 mb-8 p-6 bg-emerald-50/50 rounded-[2.5rem] border border-emerald-100 animate-in fade-in text-left">
+                    <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest text-center italic font-black">Patient Data</p>
+                    <div className="flex gap-2">
+                       <input placeholder="Age" type="number" onChange={e => setBookingMeta({...bookingMeta, patientAge: e.target.value})} className="flex-1 bg-white p-3 rounded-2xl text-xs font-bold outline-none border border-emerald-200 shadow-inner" />
+                       <select onChange={e => setBookingMeta({...bookingMeta, consultType: e.target.value})} className="flex-1 bg-white p-3 rounded-2xl text-xs font-bold border border-emerald-200 uppercase font-black"><option>Regular</option><option>Urgent</option></select>
                     </div>
                   </div>
                )}
@@ -321,14 +328,14 @@ export default function App() {
            </div>
         )}
 
-        {/* VIEW: MERCHANT ACCOUNT (Management Hub) */}
+        {/* VIEW: ACCOUNT (Unified Hub) */}
         {view === 'account' && (
            <div className="pt-4 space-y-6 px-4 pb-10 animate-in slide-in-from-bottom-4 text-left">
               {!isSessionVerified ? (
                  <div className="animate-in zoom-in-95 pt-20 text-center">
                     <div className="text-center mb-10">
                        <Lucide.UserCircle size={64} className="mx-auto text-emerald-600 mb-2 p-4 bg-emerald-50 rounded-[2.5rem] shadow-inner"/>
-                       <h2 className="text-3xl font-black uppercase tracking-tighter italic text-emerald-900 text-center uppercase">Merchant Hub</h2>
+                       <h2 className="text-3xl font-black uppercase tracking-tighter italic text-emerald-900 text-center uppercase">Account Hub</h2>
                     </div>
                     
                     <section className="bg-white p-8 rounded-[3.5rem] shadow-2xl space-y-4 border border-gray-100 text-left">
@@ -339,12 +346,12 @@ export default function App() {
 
                     {myBookings.length > 0 && (
                       <section className="mt-20 space-y-4 text-left">
-                         <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 italic">Personal Token Wallet</h3>
+                         <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 italic">My Tokens Wallet</h3>
                          <div className="space-y-3">
                             {myBookings.map((b, i) => (
                                <div key={i} className="bg-white p-5 rounded-[2rem] border border-gray-100 flex justify-between items-center shadow-sm">
-                                  <div><p className="font-bold text-sm">{b.storeName}</p><p className="text-[8px] text-gray-400 uppercase font-black">{b.date} • {b.time}</p></div>
-                                  <span className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-xl text-[10px] font-black tracking-widest shadow-sm">{b.displayId}</span>
+                                  <div><p className="font-bold text-sm uppercase">{b.storeName}</p><p className="text-[8px] text-gray-400 uppercase font-black italic">{b.date} • {b.time}</p></div>
+                                  <span className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-xl text-[10px] font-black tracking-widest italic">{b.displayId}</span>
                                </div>
                             ))}
                          </div>
@@ -355,27 +362,25 @@ export default function App() {
                 <div className="space-y-6 animate-in slide-in-from-bottom-8 pb-20 text-left">
                    <div className="flex justify-between items-center"><h2 className="text-2xl font-black text-emerald-900 italic uppercase tracking-tight">{profile.businessName}</h2><button onClick={() => setIsSessionVerified(false)} className="bg-rose-50 px-4 py-2 rounded-xl text-rose-500 font-black text-[8px] uppercase shadow-sm">Logout</button></div>
 
-                   {/* MERCHANT PULSE */}
                    <div className="grid grid-cols-2 gap-3">
                       <div className="bg-white p-5 rounded-[2.5rem] border border-gray-100 shadow-sm flex flex-col items-center">
-                         <p className="text-[8px] font-black uppercase text-gray-400 mb-1 tracking-widest">Daily Revenue</p>
+                         <p className="text-[8px] font-black uppercase text-gray-400 mb-1 tracking-widest">Today's Revenue</p>
                          <p className="text-xl font-black text-emerald-600">₹{todayRevenue}</p>
                       </div>
                       <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/#store=${profile.businessId}`); alert("Store Link Copied!"); }} className="bg-white p-5 rounded-[2.5rem] border border-gray-100 shadow-sm flex flex-col items-center active:scale-95 transition-all">
                          <Lucide.QrCode size={20} className="text-emerald-600 mb-1"/>
-                         <p className="text-[8px] font-black uppercase text-emerald-900">Share QR Link</p>
+                         <p className="text-[8px] font-black uppercase text-emerald-900 italic">Share QR Link</p>
                       </button>
                    </div>
 
-                   {/* LIVE LEDGER */}
                    <section className="bg-emerald-600 text-white p-7 rounded-[3rem] shadow-xl space-y-4 border border-black/5">
-                      <h3 className="text-[10px] font-black uppercase tracking-widest flex items-center opacity-80 italic font-black font-black uppercase tracking-widest"><Lucide.Calendar size={14} className="mr-2"/> Active Queue</h3>
+                      <h3 className="text-[10px] font-black uppercase tracking-widest flex items-center opacity-80 italic font-black font-black uppercase tracking-widest"><Lucide.Calendar size={14} className="mr-2"/> Live Queue</h3>
                       <div className="space-y-3 max-h-72 overflow-y-auto pr-1 text-left">
                         {merchantBookings.length > 0 ? merchantBookings.sort((a,b) => b.timestamp - a.timestamp).map((b, i) => (
                            <div key={i} className="bg-white/10 p-4 rounded-2xl border border-white/5 space-y-1 animate-in fade-in">
                               <div className="flex justify-between font-black text-[11px] uppercase italic text-white text-left"><span>{b.custName || 'Guest'}</span><span className="text-emerald-200">#{b.displayId}</span></div>
                               <div className="bg-emerald-700/50 px-3 py-1 rounded-xl inline-block mt-1"><p className="text-[9px] font-black text-emerald-50 uppercase tracking-tighter italic font-black text-emerald-50">Booked: {b.services?.map(s => s.name).join(', ')}</p></div>
-                              <p className="text-[9px] opacity-70 uppercase font-bold tracking-widest block pt-1">{b.date} • {b.time} • {b.resourceName || 'First Available'}</p>
+                              <p className="text-[9px] opacity-70 uppercase font-bold tracking-widest block pt-1 italic">{b.date} • {b.time} • {b.resourceName || 'First Available'}</p>
                               <div className="pt-2 flex justify-between items-center text-left">
                                  <span className="text-[10px] font-black uppercase text-emerald-200 flex items-center gap-1"><Lucide.Phone size={10}/> {b.custPhone}</span>
                                  <button onClick={async () => { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'bookings', b.id), { status: 'completed' }); }} className="bg-white text-emerald-600 px-3 py-1 rounded-lg text-[9px] font-black uppercase shadow-sm active:scale-90 transition-all">Mark Done</button>
@@ -388,23 +393,47 @@ export default function App() {
                    <section className="bg-white p-7 rounded-[3rem] shadow-sm border border-gray-100 space-y-6 text-left">
                       <div className="flex justify-between items-center"><h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center font-black italic uppercase tracking-widest"><Lucide.Clock size={14} className="mr-2 text-emerald-600"/> Operations</h3>{editForm.image && <img src={editForm.image} className="w-10 h-10 rounded-xl object-cover shadow-sm border border-gray-50" />}</div>
                       <div className="grid grid-cols-2 gap-2">
-                        <div className="space-y-1"><p className="text-[8px] font-black text-gray-400 ml-1 uppercase">Lunch Start</p><input type="time" value={editForm.lunchStart} onChange={e => setEditForm({...editForm, lunchStart: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" /></div>
-                        <div className="space-y-1"><p className="text-[8px] font-black text-gray-400 ml-1 uppercase">Lunch End</p><input type="time" value={editForm.lunchEnd} onChange={e => setEditForm({...editForm, lunchEnd: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" /></div>
+                        <div className="space-y-1"><p className="text-[8px] font-black text-gray-400 ml-1 uppercase italic">Lunch Start</p><input type="time" value={editForm.lunchStart} onChange={e => setEditForm({...editForm, lunchStart: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" /></div>
+                        <div className="space-y-1"><p className="text-[8px] font-black text-gray-400 ml-1 uppercase italic">Lunch End</p><input type="time" value={editForm.lunchEnd} onChange={e => setEditForm({...editForm, lunchEnd: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" /></div>
                       </div>
-                      <input placeholder="Image Link" value={editForm.image} onChange={e => setEditForm({...editForm, image: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" />
+                      <input placeholder="Image URL (Logo)" value={editForm.image} onChange={e => setEditForm({...editForm, image: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" />
                       <input placeholder="Shop Name" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border" />
-                      <button onClick={async () => { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), editForm); alert("Updated!"); }} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] shadow-lg active:scale-95 transition-all">Save Settings</button>
+                      <button onClick={async () => { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), editForm); alert("Sync Complete!"); }} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] shadow-lg active:scale-95 transition-all">Save Operations</button>
                    </section>
 
-                   {/* UI: CATEGORY BASED LABELS FIXED */}
+                   {/* UI: CATEGORY BASED LABELS FIXED (FIX FOR ALL LOGIN BUGS) */}
                    <section className="bg-white p-7 rounded-[3rem] shadow-sm border border-gray-100 text-left">
                       <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6 font-black uppercase tracking-widest italic text-left">
-                        {myStore?.category === 'salon' ? 'Manage Barbers & Stylists' : myStore?.category === 'travel' ? 'Manage Drivers & Vehicles' : myStore?.category === 'clinic' ? 'Manage Doctors' : 'Manage Technicians'}
+                        {myStore?.category === 'salon' ? 'Manage Barbers & Stylists' : 
+                         myStore?.category === 'travel' ? 'Manage Drivers & Vehicles' : 
+                         myStore?.category === 'clinic' ? 'Manage Doctors' : 
+                         'Manage Technicians & job-cards'}
                       </h3>
                       <div className="flex flex-wrap gap-2 mb-6">
                         {myStore?.staff?.map((n, i) => (<div key={i} className="bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2">{n} <button onClick={async () => { const s_ = stores.find(st => st.id === profile.businessId); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { staff: s_.staff.filter((_, idx) => idx !== i) }); }}><Lucide.X size={12}/></button></div>))}
                       </div>
-                      <div className="flex gap-2"><input placeholder={myStore?.category === 'salon' ? 'Barber Name' : 'Expert Name'} value={newStaff} onChange={e => setNewStaff(e.target.value)} className="flex-1 bg-gray-50 p-3 rounded-lg font-bold text-sm outline-none border shadow-inner" /><button onClick={async () => { if(!newStaff) return; const s = stores.find(st => st.id === profile.businessId); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { staff: [...(s.staff || []), newStaff] }); setNewStaff(''); }} className="bg-emerald-600 text-white p-3 rounded-lg active:scale-95 shadow-lg"><Lucide.Plus size={18}/></button></div>
+                      <div className="flex gap-2"><input placeholder={myStore?.category === 'salon' ? 'Professional Name' : myStore?.category === 'travel' ? 'Driver/Vehicle Data' : 'Name'} value={newStaff} onChange={e => setNewStaff(e.target.value)} className="flex-1 bg-gray-50 p-3 rounded-lg font-bold text-sm outline-none border shadow-inner" /><button onClick={async () => { if(!newStaff) return; const s = stores.find(st => st.id === profile.businessId); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { staff: [...(s.staff || []), newStaff] }); setNewStaff(''); }} className="bg-emerald-600 text-white p-3 rounded-lg active:scale-95 shadow-lg"><Lucide.Plus size={18}/></button></div>
+                   </section>
+
+                   {/* SERVICE MANAGEMENT: NOW AVAILABLE FOR ALL CATEGORIES */}
+                   <section className="bg-white p-7 rounded-[3rem] shadow-sm border border-gray-100 text-left">
+                      <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6 font-black uppercase tracking-widest italic">Service Price List</h3>
+                      <div className="space-y-3 mb-6 max-h-40 overflow-y-auto pr-1">
+                        {myStore?.services?.map((s, i) => (
+                           <div key={i} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl font-bold text-sm border border-gray-100 text-left">
+                              <div><p className="uppercase">{s.name}</p><p className="text-gray-400 text-[10px]">₹{s.price} • {s.duration} min</p></div>
+                              <button onClick={async () => { const updated = myStore.services.filter((_, idx) => idx !== i); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { services: updated }); }} className="text-rose-400 p-2.5 bg-white rounded-xl shadow-sm hover:text-rose-600 transition-all"><Lucide.Trash2 size={16}/></button>
+                           </div>
+                        ))}
+                      </div>
+                      <div className="space-y-3 pt-6 border-t border-gray-100">
+                        <input placeholder="Service Name (e.g. Haircut)" value={newSvc.name} onChange={e => setNewSvc({...newSvc, name: e.target.value})} className="w-full bg-gray-50 p-3 rounded-xl text-xs outline-none uppercase font-bold border shadow-inner" />
+                        <div className="grid grid-cols-2 gap-2">
+                           <input placeholder="Price ₹" type="number" value={newSvc.price} onChange={e => setNewSvc({...newSvc, price: e.target.value})} className="bg-gray-50 p-3 rounded-xl text-xs outline-none font-bold border shadow-inner" />
+                           <input placeholder="Mins" type="number" value={newSvc.duration} onChange={e => setNewSvc({...newSvc, duration: e.target.value})} className="bg-gray-50 p-3 rounded-xl text-xs outline-none font-bold border shadow-inner" />
+                        </div>
+                        <button onClick={async () => { if(!newSvc.name || !newSvc.price) return; const current = myStore?.services || []; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { services: [...current, newSvc] }); setNewSvc({name:'', price:'', duration:'30'}); }} className="w-full bg-emerald-600 text-white py-3 rounded-xl font-black uppercase text-[10px] shadow-lg active:scale-95 transition-all">Add to Menu</button>
+                      </div>
                    </section>
 
                    <button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { isLive: !myStore?.isLive })} className={`w-full py-6 rounded-[2.5rem] font-black uppercase shadow-2xl active:scale-95 transition-all ${myStore?.isLive ? 'bg-rose-500 text-white shadow-rose-100' : 'bg-emerald-600 text-white shadow-emerald-100'}`}>
@@ -432,8 +461,8 @@ export default function App() {
                    </div>
                    <div className="space-y-4 text-sm font-bold relative z-10 border-t border-white/10 pt-6 text-white text-left">
                       <div className="grid grid-cols-2 gap-4">
-                         <div><p className="opacity-60 text-[8px] uppercase mb-1 tracking-widest font-black">Queue Position</p><p className="text-xl font-black">#{searchedBooking.queuePos || '1'}</p></div>
-                         <div><p className="opacity-60 text-[8px] uppercase mb-1 tracking-widest font-black">Live Status</p><p className="text-lg uppercase">{searchedBooking.status || 'Pending'}</p></div>
+                         <div><p className="opacity-60 text-[8px] uppercase mb-1 tracking-widest font-black italic">Queue Position</p><p className="text-xl font-black">#{searchedBooking.queuePos || '1'}</p></div>
+                         <div><p className="opacity-60 text-[8px] uppercase mb-1 tracking-widest font-black italic">Live Status</p><p className="text-lg uppercase">{searchedBooking.status || 'Pending'}</p></div>
                       </div>
                       <div className="bg-white/10 p-4 rounded-3xl"><p className="opacity-60 text-[8px] uppercase mb-1 italic text-emerald-100 font-black tracking-widest">Timing</p><p className="font-black italic">{searchedBooking.date} • {searchedBooking.time}</p></div>
                    </div>
@@ -445,7 +474,7 @@ export default function App() {
            </div>
         )}
 
-        {/* VIEW: ADMIN Portal (FIXED Registry) */}
+        {/* VIEW: ADMIN Portal (FIXED List Rendering) */}
         {view === 'admin' && (
            <div className="pt-20 text-center animate-in zoom-in-95 px-4">
               <Lucide.Lock className="mx-auto text-emerald-600 mb-6" size={48} />
@@ -462,7 +491,7 @@ export default function App() {
             </div>
 
             <div className="space-y-4 mb-10 text-left">
-              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 italic">Verified Directory</h3>
+              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 italic font-black">Verified Directory</h3>
               <div className="space-y-4 max-h-[35vh] overflow-y-auto pr-1">
                 {stores.map(s => (
                   <div key={s.id} className="bg-white p-5 rounded-[2.5rem] border border-gray-100 flex items-center gap-4 animate-in fade-in shadow-sm text-left">
@@ -476,7 +505,7 @@ export default function App() {
             </div>
 
             <div className="space-y-4 border-t border-gray-100 pt-8 text-left">
-              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 italic">Application Inbox</h3>
+              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 italic font-black">Intake Feed</h3>
               <div className="space-y-4">
                  {requests.filter(r => r.status === 'pending').map(req => (
                     <div key={req.id} className="bg-amber-50 p-7 rounded-[3rem] space-y-4 border border-amber-100 shadow-sm animate-in fade-in text-left">
@@ -488,12 +517,12 @@ export default function App() {
                        <button onClick={async () => {
                            const mid = document.getElementById(`id-${req.id}`).value;
                            const pass = document.getElementById(`pw-${req.id}`).value;
-                           if(!mid || !pass) return;
-                           // UNIQUE REGISTRY FIX: Approval creates a store with a unique ID that matches the Merchant ID
+                           if(!mid || !pass) return alert("Fill credentials");
+                           // UNIQUE REGISTRY FIX: Approval uses mid as unique doc ID
                            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vendor_creds', mid.toUpperCase()), { password: pass, uid: req.uid, businessName: req.bizName, storeId: mid.toUpperCase() });
                            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', req.id), { status: 'approved' });
                            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', mid.toUpperCase()), { id: mid.toUpperCase(), name: req.bizName, address: req.addr, category: req.cat || 'salon', ownerId: req.uid, merchantId: mid.toUpperCase(), isLive: false, services: [], staff: [], image: "", lunchStart: '13:00', lunchEnd: '14:00' });
-                           alert("Merchant Authorized!");
+                           alert("Enterprise Activated!");
                         }} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] shadow-lg shadow-emerald-100 italic">Approve Business</button>
                     </div>
                  ))}
@@ -503,35 +532,12 @@ export default function App() {
           </div>
         )}
 
-        {/* ONBOARDING */}
-        {view === 'onboarding' && (
-           <div className="pt-4 space-y-6 animate-in slide-in-from-bottom-4 px-4 pb-20 text-center text-left">
-              <div className="text-center mb-10">
-                 <Lucide.Building2 size={56} className="mx-auto text-emerald-600 mb-2 p-4 bg-emerald-50 rounded-[2.5rem] shadow-inner" />
-                 <h2 className="text-3xl font-black uppercase tracking-tighter text-emerald-900 italic text-center">Apply to join</h2>
-                 <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest text-center">Register business for MH-08</p>
-              </div>
-              <div className="bg-white p-7 rounded-[3.5rem] shadow-xl space-y-4 border border-gray-100 text-left text-xs font-black uppercase">
-                 <input placeholder="Official Shop Name" value={regForm.bizName} onChange={e => setRegForm({...regForm, bizName: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-sm outline-none border border-transparent focus:border-emerald-200 uppercase shadow-inner" />
-                 <input placeholder="Location Area" value={regForm.addr} onChange={e => setRegForm({...regForm, addr: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-sm outline-none border border-transparent focus:border-emerald-200 uppercase shadow-inner" />
-                 <select value={regForm.cat} onChange={e => setRegForm({...regForm, cat: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-sm outline-none border border-transparent focus:border-emerald-200 shadow-inner font-black uppercase italic">
-                    <option value="salon">Salon & Wellness</option><option value="travel">Transport Service</option><option value="clinic">Clinic/Doctor</option><option value="repair">Service/Repair</option>
-                 </select>
-                 <button onClick={async () => {
-                    if(!regForm.bizName || !regForm.addr) return alert("Required fields missing");
-                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'requests'), { uid: user.uid, ...regForm, status: 'pending', timestamp: Date.now() });
-                    alert("Application Sent!"); setView('home');
-                 }} className="w-full bg-emerald-600 text-white py-5 rounded-[2.5rem] font-black shadow-xl uppercase active:scale-95 transition-all tracking-widest font-black uppercase italic shadow-emerald-50">Submit Application</button>
-              </div>
-           </div>
-        )}
-
         {/* View Selection: Confirmation */}
         {view === 'confirmation' && (
            <div className="text-center pt-10 animate-in zoom-in-90 duration-700 pb-10 px-4">
              <div className="w-24 h-24 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner animate-bounce border-2 border-emerald-200 shadow-xl shadow-emerald-50 text-center"><Lucide.CheckCircle2 size={48}/></div>
              <h2 className="text-4xl font-black text-emerald-900 mb-6 uppercase tracking-tighter italic text-center">Reserved</h2>
-             <div className="bg-emerald-600 text-white p-8 rounded-[3.5rem] shadow-2xl space-y-6 relative overflow-hidden text-center shadow-emerald-200">
+             <div className="bg-emerald-600 text-white p-8 rounded-[3.5rem] shadow-2xl space-y-6 relative overflow-hidden text-center shadow-emerald-200 text-white text-left">
                 <div className="absolute top-0 right-0 p-4 opacity-10"><Lucide.Clock size={100}/></div>
                 <div><p className="text-[10px] font-black uppercase opacity-60 mb-2 italic tracking-widest">Unique Booking Token</p><h3 className="text-5xl font-black tracking-widest italic">{lastBookingId}</h3></div>
                 <div className="grid grid-cols-2 gap-4 border-t border-white/10 pt-6 font-black uppercase">
