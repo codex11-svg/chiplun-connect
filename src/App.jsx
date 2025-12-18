@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, doc, setDoc, onSnapshot, updateDoc, getDoc, addDoc, deleteDoc, query, where, getDocs } from 'firebase/firestore';
+import { getFirestore, collection, doc, setDoc, onSnapshot, updateDoc, getDoc, addDoc, deleteDoc } from 'firebase/firestore';
 import * as Lucide from 'lucide-react';
 
 // --- Configuration & Initialization ---
 const firebaseConfig = {
-  apiKey: "AIzaSyALH-taOmzYitK1XnOFuKMrqgFWJqVALSo",
+  apiKey: "", // Injected by environment
   authDomain: "chiplun-connect.firebaseapp.com",
   projectId: "chiplun-connect",
   storageBucket: "chiplun-connect.firebasestorage.app",
@@ -17,7 +17,9 @@ const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = "chiplun-pro-v50-supreme"; 
+
+// Use the exact App ID and PIN from the V50 Specs
+const APP_ID = "chiplun-pro-v50-supreme"; 
 const ADMIN_PIN = "112607";
 
 const CATEGORIES = [
@@ -27,6 +29,36 @@ const CATEGORIES = [
   { id: 'repair', n: 'Repair', i: <Lucide.Wrench size={20}/>, c: 'bg-amber-50 text-amber-500 border-amber-100' }
 ];
 
+// --- UI Components for System Messages (Replacing Alerts) ---
+const Toast = ({ msg, type, onClose }) => {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 3000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  const bg = type === 'error' ? 'bg-rose-500' : 'bg-slate-900';
+  
+  return (
+    <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[2000] ${bg} text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-4 fade-in duration-300`}>
+      {type === 'error' ? <Lucide.AlertCircle size={16} /> : <Lucide.CheckCircle2 size={16} />}
+      <span className="text-xs font-black uppercase tracking-widest">{msg}</span>
+    </div>
+  );
+};
+
+const Modal = ({ children, title, onClose }) => (
+  <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[1500] flex items-center justify-center p-6 animate-in fade-in duration-200">
+    <div className="bg-white w-full max-w-xs rounded-[2.5rem] p-6 shadow-2xl border-t-8 border-slate-900 animate-in zoom-in-95 duration-300">
+      <div className="flex justify-between items-center mb-6">
+        <h3 className="text-sm font-black uppercase tracking-widest italic text-slate-400">{title}</h3>
+        <button onClick={onClose} className="p-2 bg-slate-50 rounded-full hover:bg-slate-100"><Lucide.X size={16}/></button>
+      </div>
+      {children}
+    </div>
+  </div>
+);
+
+// --- MAIN APPLICATION ---
 export default function App() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState({ role: 'customer' });
@@ -44,10 +76,16 @@ export default function App() {
   const [selectedStore, setSelectedStore] = useState(null);
   const [cart, setCart] = useState([]); 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  
+  // Admin & Auth State
   const [adminAuth, setAdminAuth] = useState(false);
   const [adminPin, setAdminPin] = useState('');
-  const [adminTab, setAdminTab] = useState('requests'); // 'requests' or 'merchants'
-  const [bizSubView, setBizSubView] = useState('register'); // 'register' or 'login'
+  const [adminTab, setAdminTab] = useState('requests'); 
+  const [bizSubView, setBizSubView] = useState('register');
+  
+  // Notification System
+  const [toast, setToast] = useState(null); // { msg, type }
+  const [activeModal, setActiveModal] = useState(null); // { type, data }
 
   // Form States
   const [bookingMeta, setBookingMeta] = useState({
@@ -59,12 +97,23 @@ export default function App() {
   const [trackedBooking, setTrackedBooking] = useState(null);
   const [vendorLogin, setVendorLogin] = useState({ id: '', pass: '' });
 
+  // Input Refs for Modals
+  const modalInput1 = useRef('');
+  const modalInput2 = useRef('');
+
+  // --- Helpers ---
+  const notify = (msg, type = 'success') => setToast({ msg, type });
+  const closeToast = () => setToast(null);
+
   // --- Firebase Sync ---
   useEffect(() => {
     const init = async () => {
       onAuthStateChanged(auth, async (u) => {
-        if (!u) await signInAnonymously(auth);
-        setUser(u);
+        if (!u) {
+          await signInAnonymously(auth);
+        } else {
+          setUser(u);
+        }
       });
     };
     init();
@@ -73,11 +122,12 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
 
+    // Conforming to Rule 1: Strict Paths
     const paths = {
-      profile: doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data'),
-      stores: collection(db, 'artifacts', appId, 'public', 'data', 'stores'),
-      bookings: collection(db, 'artifacts', appId, 'public', 'data', 'bookings'),
-      requests: collection(db, 'artifacts', appId, 'public', 'data', 'requests')
+      profile: doc(db, 'artifacts', APP_ID, 'users', user.uid, 'profile', 'data'),
+      stores: collection(db, 'artifacts', APP_ID, 'public', 'data', 'stores'),
+      bookings: collection(db, 'artifacts', APP_ID, 'public', 'data', 'bookings'),
+      requests: collection(db, 'artifacts', APP_ID, 'public', 'data', 'requests')
     };
 
     const unsubs = [
@@ -94,7 +144,7 @@ export default function App() {
     return () => unsubs.forEach(fn => fn());
   }, [user]);
 
-  // --- Memos ---
+  // --- Memos (Rule 2: No Complex Queries) ---
   const filteredStores = useMemo(() => {
     return stores.filter(s => 
       s.isLive && 
@@ -111,7 +161,7 @@ export default function App() {
     return { revenue, queue };
   }, [allBookings, profile.businessId]);
 
-  // --- Actions ---
+  // --- Core Actions ---
   const handleBooking = async () => {
     if (isProcessing) return;
     setIsProcessing(true);
@@ -119,148 +169,137 @@ export default function App() {
     const service = cart[0];
     let finalPrice = Number(service.price);
     
+    // Travel Logic per V50 Spec
     if (selectedStore.category === 'travel' && bookingMeta.destination) {
       const isShort = !service.name.toLowerCase().includes(bookingMeta.destination.toLowerCase());
       if (isShort) finalPrice = Math.floor(finalPrice * 0.7);
       finalPrice = finalPrice * (bookingMeta.numSeats || 1);
     }
 
-    const payload = { ...bookingMeta, displayId, storeId: selectedStore.id, storeName: selectedStore.name, serviceName: service.name, totalPrice: finalPrice, status: 'pending', timestamp: Date.now() };
+    const payload = { 
+      ...bookingMeta, 
+      displayId, 
+      storeId: selectedStore.id, 
+      storeName: selectedStore.name, 
+      serviceName: service.name, 
+      totalPrice: finalPrice, 
+      status: 'pending', 
+      timestamp: Date.now() 
+    };
 
     try {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'bookings'), payload);
-      await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'bookings'), payload);
+      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'bookings'), payload);
+      // Private User Record
+      await addDoc(collection(db, 'artifacts', APP_ID, 'users', user.uid, 'bookings'), payload);
+      
       setTrackedBooking(payload);
       setShowConfirmModal(false);
       setView('track');
-    } catch (e) { console.error(e); } finally { setIsProcessing(false); }
+      notify("Booking Confirmed!");
+    } catch (e) { 
+      console.error(e); 
+      notify("Booking Failed", "error");
+    } finally { 
+      setIsProcessing(false); 
+    }
   };
 
   const submitRegistration = async () => {
-    if (!regForm.bizName || !regForm.phone || !regForm.address) return alert("Please fill all business details");
+    if (!regForm.bizName || !regForm.phone || !regForm.address) return notify("Fill all details", "error");
     setIsProcessing(true);
     try {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'requests'), { ...regForm, status: 'pending', timestamp: Date.now(), uid: user.uid });
-      alert("Application Submitted! Wait for admin approval.");
+      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'requests'), { ...regForm, status: 'pending', timestamp: Date.now(), uid: user.uid });
+      notify("Application Sent!");
       setRegForm({ name: '', phone: '', bizName: '', category: 'salon', address: '' });
       setView('home');
-    } catch (e) { alert("Error submitting"); } finally { setIsProcessing(false); }
+    } catch (e) { notify("Error submitting", "error"); } finally { setIsProcessing(false); }
   };
 
   const handleVendorLogin = async () => {
     setIsProcessing(true);
     try {
-      const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vendor_creds', vendorLogin.id.toUpperCase()));
+      const snap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'vendor_creds', vendorLogin.id.toUpperCase()));
       if (snap.exists() && snap.data().password === vendorLogin.pass) {
-        await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data'), { role: 'vendor', businessId: snap.data().storeId, businessName: snap.data().businessName });
+        await updateDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'profile', 'data'), { role: 'vendor', businessId: snap.data().storeId, businessName: snap.data().businessName });
         setView('merchant');
-      } else { alert("Invalid Credentials"); }
-    } catch (e) { alert("Login Error"); } finally { setIsProcessing(false); }
+        notify("Welcome Back");
+      } else { notify("Invalid Credentials", "error"); }
+    } catch (e) { notify("Login Error", "error"); } finally { setIsProcessing(false); }
   };
 
-  // --- ADMIN PANEL FUNCTIONS ---
-  const manualApproveBusiness = async (req) => {
-    const merchantId = prompt("Enter Merchant ID (e.g. CH-SALON-01):");
-    if (!merchantId) return;
-    
-    const securityKey = prompt("Enter Security Key (Secret Phrase/Pin):");
-    if (!securityKey) return;
+  // --- ADMIN ACTIONS (Replacing Alerts with Modals) ---
+  
+  const initiateApproval = (req) => {
+    setActiveModal({ type: 'approve', data: req });
+  };
+
+  const confirmApprove = async () => {
+    const req = activeModal.data;
+    const mid = modalInput1.current.value.toUpperCase();
+    const key = modalInput2.current.value;
+
+    if(!mid || !key) return notify("Both fields required", "error");
 
     setIsProcessing(true);
     try {
-      // 1. Create Business Doc in 'stores'
-      const storeRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'stores'));
+      // 1. Create Business Doc
+      const storeRef = doc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'stores'));
       await setDoc(storeRef, {
         name: req.bizName,
         category: req.category,
         address: req.address,
         isLive: true,
-        merchantId: merchantId.toUpperCase(),
+        merchantId: mid,
         image: "https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?w=800",
         services: [{ name: 'Basic Service', price: 100, duration: 30 }],
         staff: [{ name: 'Owner' }]
       });
 
-      // 2. Create Login Credentials
-      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vendor_creds', merchantId.toUpperCase()), {
+      // 2. Create Creds
+      await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'vendor_creds', mid), {
         storeId: storeRef.id,
         businessName: req.bizName,
-        password: securityKey
+        password: key
       });
 
-      // 3. Mark Request as Approved (Delete from requests)
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', req.id));
+      // 3. Cleanup Request
+      await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'requests', req.id));
 
-      alert(`Success! ${req.bizName} is now live.\nMerchant ID: ${merchantId.toUpperCase()}\nSecurity Key: ${securityKey}`);
+      notify(`Live: ${mid}`);
+      setActiveModal(null);
     } catch (e) {
-      alert("Approval Error");
+      notify("Approval Failed", "error");
       console.error(e);
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const rejectRequest = async (id) => {
-    if (!window.confirm("Reject this application?")) return;
-    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', id));
+  const initiateReject = (id) => setActiveModal({ type: 'reject', data: id });
+  
+  const confirmReject = async () => {
+    await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'requests', activeModal.data));
+    notify("Application Rejected");
+    setActiveModal(null);
   };
 
-  const purgeBusiness = async (s) => {
-    if (!window.confirm(`Permanently remove ${s.name}? This will also delete their login credentials.`)) return;
+  const initiatePurge = (s) => setActiveModal({ type: 'purge', data: s });
+
+  const confirmPurge = async () => {
+    const s = activeModal.data;
     try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', s.id));
+      await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'stores', s.id));
       if (s.merchantId) {
-        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vendor_creds', s.merchantId.toUpperCase()));
+        await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'vendor_creds', s.merchantId.toUpperCase()));
       }
-      alert("Business purged successfully.");
-    } catch (e) {
-      alert("Error purging business.");
-    }
-  };
-
-  const updateMerchantId = async (store) => {
-    const newId = prompt("Enter New Merchant ID (CH-XXXX):", store.merchantId);
-    if (newId && newId.toUpperCase() !== store.merchantId) {
-      setIsProcessing(true);
-      try {
-        // Fetch old creds
-        const oldCredsRef = doc(db, 'artifacts', appId, 'public', 'data', 'vendor_creds', store.merchantId.toUpperCase());
-        const snap = await getDoc(oldCredsRef);
-        
-        if (snap.exists()) {
-          // Create new creds
-          await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vendor_creds', newId.toUpperCase()), snap.data());
-          // Delete old creds
-          await deleteDoc(oldCredsRef);
-        }
-        
-        // Update store record
-        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', store.id), {
-          merchantId: newId.toUpperCase()
-        });
-        
-        alert("Merchant ID updated successfully.");
-      } catch (e) {
-        alert("Update failed.");
-      } finally {
-        setIsProcessing(false);
-      }
-    }
-  };
-
-  const updateSecurityKey = async (merchantId) => {
-    if (!merchantId) return alert("Business has no valid Merchant ID");
-    const newKey = prompt("Enter new Security Key:");
-    if (newKey) {
-      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vendor_creds', merchantId.toUpperCase()), {
-        password: newKey
-      });
-      alert("Security Key updated.");
-    }
+      notify("Business Purged");
+    } catch (e) { notify("Purge Error", "error"); }
+    setActiveModal(null);
   };
 
   const completeBooking = async (id) => {
-    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'bookings', id), { status: 'completed' });
+    await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'bookings', id), { status: 'completed' });
+    notify("Order Completed");
   };
 
   if (loading) return (
@@ -272,6 +311,8 @@ export default function App() {
   return (
     <div className="max-w-md mx-auto bg-slate-50 min-h-screen flex flex-col shadow-2xl relative font-sans text-slate-900 selection:bg-emerald-100 overflow-x-hidden">
       
+      {toast && <Toast msg={toast.msg} type={toast.type} onClose={closeToast} />}
+
       {/* GLOBAL HEADER */}
       <header className="bg-emerald-600 text-white p-6 pb-12 rounded-b-[3.5rem] shadow-lg sticky top-0 z-50">
         <div className="flex justify-between items-center mb-6">
@@ -441,7 +482,7 @@ export default function App() {
                <div className="bg-white p-8 rounded-[3rem] shadow-2xl border border-rose-100 space-y-4">
                  <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest text-center">Identity Verification Required</p>
                  <input type="password" placeholder="System PIN" value={adminPin} onChange={e => setAdminPin(e.target.value)} className="w-full bg-slate-50 p-5 rounded-2xl shadow-inner border font-black text-center text-lg outline-none" />
-                 <button onClick={() => { if (adminPin === ADMIN_PIN) setAdminAuth(true); else alert("Access Denied"); }} className="w-full bg-rose-600 text-white py-5 rounded-2xl font-black shadow-xl uppercase active:scale-95">Authenticate</button>
+                 <button onClick={() => { if (adminPin === ADMIN_PIN) setAdminAuth(true); else notify("Access Denied", "error"); }} className="w-full bg-rose-600 text-white py-5 rounded-2xl font-black shadow-xl uppercase active:scale-95">Authenticate</button>
                </div>
              ) : (
                <div className="space-y-6">
@@ -453,60 +494,58 @@ export default function App() {
 
                  {/* Tab Content: Requests */}
                  {adminTab === 'requests' && (
-                    <div className="space-y-4 pb-20">
-                      {requests.length > 0 ? requests.map(r => (
-                        <div key={r.id} className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 space-y-4 animate-in slide-in-from-bottom-4">
+                   <div className="space-y-4 pb-20">
+                     {requests.length > 0 ? requests.map(r => (
+                       <div key={r.id} className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 space-y-4 animate-in slide-in-from-bottom-4">
                            <div className="flex justify-between items-start">
-                              <div>
-                                 <h4 className="font-black text-sm uppercase italic tracking-tight">{r.bizName}</h4>
-                                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">{r.category} • {r.address}</p>
-                              </div>
-                              <Lucide.FileText size={20} className="text-slate-200" />
+                             <div>
+                                <h4 className="font-black text-sm uppercase italic tracking-tight">{r.bizName}</h4>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">{r.category} • {r.address}</p>
+                             </div>
+                             <Lucide.FileText size={20} className="text-slate-200" />
                            </div>
                            <div className="bg-slate-50 p-4 rounded-2xl text-[10px] font-bold uppercase space-y-1 shadow-inner border border-slate-100">
-                              <p className="flex justify-between"><span>Applicant:</span><span className="text-rose-600">{r.name}</span></p>
-                              <p className="flex justify-between"><span>Phone:</span><span className="text-rose-600">{r.phone}</span></p>
+                             <p className="flex justify-between"><span>Applicant:</span><span className="text-rose-600">{r.name}</span></p>
+                             <p className="flex justify-between"><span>Phone:</span><span className="text-rose-600">{r.phone}</span></p>
                            </div>
                            <div className="flex gap-2 pt-2">
-                              <button onClick={() => rejectRequest(r.id)} className="flex-1 py-4 border border-rose-100 text-rose-500 rounded-2xl font-black text-[9px] uppercase active:scale-95 transition-all">Reject</button>
-                              <button onClick={() => manualApproveBusiness(r)} disabled={isProcessing} className="flex-[2] py-4 bg-emerald-600 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest shadow-lg active:scale-95 transition-all">Manual Approve</button>
+                             <button onClick={() => initiateReject(r.id)} className="flex-1 py-4 border border-rose-100 text-rose-500 rounded-2xl font-black text-[9px] uppercase active:scale-95 transition-all">Reject</button>
+                             <button onClick={() => initiateApproval(r)} disabled={isProcessing} className="flex-[2] py-4 bg-emerald-600 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest shadow-lg active:scale-95 transition-all">Manual Approve</button>
                            </div>
                         </div>
-                      )) : (
-                        <div className="text-center py-20 opacity-30 italic font-bold uppercase text-[10px] tracking-widest">No pending applications</div>
-                      )}
-                    </div>
+                     )) : (
+                       <div className="text-center py-20 opacity-30 italic font-bold uppercase text-[10px] tracking-widest">No pending applications</div>
+                     )}
+                   </div>
                  )}
 
                  {/* Tab Content: Merchants */}
                  {adminTab === 'merchants' && (
-                    <div className="space-y-4 pb-20">
-                      {stores.map(s => (
-                        <div key={s.id} className="bg-white p-5 rounded-[2.5rem] shadow-sm border border-slate-100 space-y-4 animate-in fade-in">
+                   <div className="space-y-4 pb-20">
+                     {stores.map(s => (
+                       <div key={s.id} className="bg-white p-5 rounded-[2.5rem] shadow-sm border border-slate-100 space-y-4 animate-in fade-in">
                            <div className="flex justify-between items-center">
-                              <div>
-                                 <h4 className="font-black text-xs uppercase italic">{s.name}</h4>
-                                 <p className="text-[8px] font-black text-rose-600 uppercase tracking-[0.2em] mt-0.5">ID: {s.merchantId || 'LEGACY'}</p>
-                              </div>
-                              <div className="flex gap-1">
-                                 <button title="Change Merchant ID" onClick={() => updateMerchantId(s)} className="p-2 bg-slate-50 rounded-lg text-slate-400 hover:text-emerald-600 border border-slate-100"><Lucide.Settings2 size={16}/></button>
-                                 <button title="Change Security Key" onClick={() => updateSecurityKey(s.merchantId)} className="p-2 bg-slate-50 rounded-lg text-slate-400 hover:text-blue-500 border border-slate-100"><Lucide.Key size={16}/></button>
-                                 <button title="Delete Business" onClick={() => purgeBusiness(s)} className="p-2 bg-slate-50 rounded-lg text-slate-400 hover:text-rose-600 border border-slate-100"><Lucide.Trash2 size={16}/></button>
-                              </div>
+                             <div>
+                                <h4 className="font-black text-xs uppercase italic">{s.name}</h4>
+                                <p className="text-[8px] font-black text-rose-600 uppercase tracking-[0.2em] mt-0.5">ID: {s.merchantId || 'LEGACY'}</p>
+                             </div>
+                             <div className="flex gap-1">
+                                <button title="Delete Business" onClick={() => initiatePurge(s)} className="p-2 bg-slate-50 rounded-lg text-slate-400 hover:text-rose-600 border border-slate-100"><Lucide.Trash2 size={16}/></button>
+                             </div>
                            </div>
                            <div className="grid grid-cols-2 gap-2 text-[8px] font-black uppercase text-slate-400">
-                              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 shadow-inner">
-                                 <p className="opacity-50 mb-1">Status</p>
-                                 <p className="text-emerald-600">{s.isLive ? 'Online' : 'Offline'}</p>
-                              </div>
-                              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 shadow-inner">
-                                 <p className="opacity-50 mb-1">Category</p>
-                                 <p className="text-slate-900">{s.category}</p>
-                              </div>
+                             <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 shadow-inner">
+                                <p className="opacity-50 mb-1">Status</p>
+                                <p className="text-emerald-600">{s.isLive ? 'Online' : 'Offline'}</p>
+                             </div>
+                             <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 shadow-inner">
+                               <p className="opacity-50 mb-1">Category</p>
+                                <p className="text-slate-900">{s.category}</p>
+                             </div>
                            </div>
                         </div>
-                      ))}
-                    </div>
+                     ))}
+                   </div>
                  )}
                </div>
              )}
@@ -617,7 +656,7 @@ export default function App() {
             ) : (
               <div className="space-y-4">
                 <input placeholder="Enter Token (CH-XXXX)" value={trackInput} onChange={e => setTrackInput(e.target.value)} className="w-full bg-white p-5 rounded-2xl shadow-sm border border-slate-100 font-black text-center text-lg uppercase outline-none focus:border-emerald-500" />
-                <button onClick={() => { const found = allBookings.find(b => b.displayId === trackInput.toUpperCase()); if (found) setTrackedBooking(found); else alert("Token not found"); }} className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black shadow-xl uppercase active:scale-95">Track Now</button>
+                <button onClick={() => { const found = allBookings.find(b => b.displayId === trackInput.toUpperCase()); if (found) setTrackedBooking(found); else notify("Token Not Found", "error"); }} className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black shadow-xl uppercase active:scale-95">Track Now</button>
               </div>
             )}
           </div>
@@ -625,7 +664,9 @@ export default function App() {
 
       </main>
 
-      {/* CONFIRMATION MODAL */}
+      {/* --- MODALS (Replaces Alerts) --- */}
+      
+      {/* 1. Booking Confirmation Modal */}
       {showConfirmModal && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[1000] flex items-center justify-center p-6 animate-in zoom-in-95 duration-200">
            <div className="bg-white w-full max-w-sm rounded-[3rem] p-8 shadow-2xl border-t-8 border-emerald-500 text-center">
@@ -640,6 +681,37 @@ export default function App() {
               <button onClick={() => setShowConfirmModal(false)} className="w-full py-4 text-slate-400 font-black text-[10px] uppercase">Wait, Go Back</button>
            </div>
         </div>
+      )}
+
+      {/* 2. Admin Logic Modals */}
+      {activeModal?.type === 'approve' && (
+        <Modal title="Issue License" onClose={() => setActiveModal(null)}>
+           <div className="space-y-4">
+             <div className="space-y-1">
+                <label className="text-[8px] font-black uppercase text-slate-400 ml-2">Assign Merchant ID</label>
+                <input ref={modalInput1} className="w-full bg-slate-50 p-3 rounded-xl border border-slate-200 font-black uppercase text-center" placeholder="CH-XXXX" />
+             </div>
+             <div className="space-y-1">
+                <label className="text-[8px] font-black uppercase text-slate-400 ml-2">Set Security Key</label>
+                <input ref={modalInput2} className="w-full bg-slate-50 p-3 rounded-xl border border-slate-200 font-black text-center" placeholder="Secret Key" />
+             </div>
+             <button onClick={confirmApprove} className="w-full bg-emerald-600 text-white py-4 rounded-xl font-black uppercase text-[10px] tracking-widest">Go Live</button>
+           </div>
+        </Modal>
+      )}
+
+      {activeModal?.type === 'reject' && (
+        <Modal title="Confirm Reject" onClose={() => setActiveModal(null)}>
+          <p className="text-xs font-bold text-slate-500 mb-6 text-center">Are you sure you want to reject this application?</p>
+          <button onClick={confirmReject} className="w-full bg-rose-500 text-white py-4 rounded-xl font-black uppercase text-[10px] tracking-widest">Reject Application</button>
+        </Modal>
+      )}
+
+      {activeModal?.type === 'purge' && (
+        <Modal title="Danger Zone" onClose={() => setActiveModal(null)}>
+          <p className="text-xs font-bold text-slate-500 mb-6 text-center">Permanently delete business and credentials?</p>
+          <button onClick={confirmPurge} className="w-full bg-rose-500 text-white py-4 rounded-xl font-black uppercase text-[10px] tracking-widest">Confirm Purge</button>
+        </Modal>
       )}
 
       {/* BOTTOM NAV */}
