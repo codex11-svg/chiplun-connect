@@ -5,10 +5,27 @@ import { getFirestore, collection, doc, setDoc, onSnapshot, updateDoc, getDoc, a
 import * as Lucide from 'lucide-react';
 
 // --- Configuration & Initialization ---
-// Fixed: Use environment provided config to prevent API Key errors
-const firebaseConfig = JSON.parse(__firebase_config);
+// Fixed: Safely handle config parsing with a fallback to prevent white screen crashes
+const getFirebaseConfig = () => {
+  try {
+    if (typeof __firebase_config !== 'undefined') {
+      return JSON.parse(__firebase_config);
+    }
+  } catch (e) {
+    console.warn("Environment config missing, using fallback.");
+  }
+  // Fallback to the original V50 configuration
+  return {
+    apiKey: "AIzaSyALH-taOmzYitK1XnOFuKMrqgFWJqVALSo",
+    authDomain: "chiplun-connect.firebaseapp.com",
+    projectId: "chiplun-connect",
+    storageBucket: "chiplun-connect.firebasestorage.app",
+    messagingSenderId: "861830187280",
+    appId: "1:861830187280:web:504064454581cdeb84bd95"
+  };
+};
 
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+const app = getApps().length === 0 ? initializeApp(getFirebaseConfig()) : getApps()[0];
 const auth = getAuth(app);
 const db = getFirestore(app);
 
@@ -23,7 +40,7 @@ const CATEGORIES = [
   { id: 'repair', n: 'Repair', i: <Lucide.Wrench size={20}/>, c: 'bg-amber-50 text-amber-500 border-amber-100' }
 ];
 
-// --- UI Components for System Messages (Replacing Alerts) ---
+// --- UI Components for System Messages ---
 const Toast = ({ msg, type, onClose }) => {
   useEffect(() => {
     const timer = setTimeout(onClose, 3000);
@@ -78,8 +95,8 @@ export default function App() {
   const [bizSubView, setBizSubView] = useState('register');
   
   // Notification System
-  const [toast, setToast] = useState(null); // { msg, type }
-  const [activeModal, setActiveModal] = useState(null); // { type, data }
+  const [toast, setToast] = useState(null); 
+  const [activeModal, setActiveModal] = useState(null); 
 
   // Form States
   const [bookingMeta, setBookingMeta] = useState({
@@ -102,17 +119,23 @@ export default function App() {
   // --- Firebase Sync ---
   useEffect(() => {
     const initAuth = async () => {
-      // Prioritize custom token if available (Environment provided)
-      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-        await signInWithCustomToken(auth, __initial_auth_token);
-      } else {
-        await signInAnonymously(auth);
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (e) {
+        console.error("Auth failed:", e);
+        // Ensure loading doesn't hang if auth fails completely
+        setLoading(false);
       }
     };
     initAuth();
     
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
+      if (!u) setLoading(false); 
     });
     return () => unsubscribe();
   }, []);
@@ -133,7 +156,8 @@ export default function App() {
         if (snap.exists()) setProfile(snap.data());
         else setDoc(paths.profile, { role: 'customer', uid: user.uid });
         setLoading(false);
-      }, (error) => console.error("Profile sync error:", error)),
+      }, (error) => { console.error("Profile sync error:", error); setLoading(false); }),
+      
       onSnapshot(paths.stores, (s) => setStores(s.docs.map(d => ({ id: d.id, ...d.data() }))), (e) => console.error("Stores sync error:", e)),
       onSnapshot(paths.bookings, (s) => setAllBookings(s.docs.map(d => ({ id: d.id, ...d.data() }))), (e) => console.error("Bookings sync error:", e)),
       onSnapshot(paths.requests, (s) => setRequests(s.docs.map(d => ({ id: d.id, ...d.data() }))), (e) => console.error("Requests sync error:", e))
