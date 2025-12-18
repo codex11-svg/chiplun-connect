@@ -17,7 +17,7 @@ const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = "chiplun-pro-v25-master"; 
+const appId = "chiplun-pro-v26-final"; 
 const ADMIN_PIN = "112607";
 
 export default function App() {
@@ -57,7 +57,7 @@ export default function App() {
   const [newStaff, setNewStaff] = useState('');
   const [editForm, setEditForm] = useState({ name: '', address: '', image: '', category: 'salon', lunchStart: '13:00', lunchEnd: '14:00' });
 
-  // --- Real-time Core ---
+  // --- Core Listeners ---
   useEffect(() => {
     onAuthStateChanged(auth, async (u) => {
       if (!u) await signInAnonymously(auth);
@@ -93,7 +93,7 @@ export default function App() {
     }
   }, [isSessionVerified, myStore]);
 
-  // --- Logic Helpers ---
+  // --- Business Logic ---
   const isMerchantOnBreak = (time, store) => {
     if (!store || !store.lunchStart || !store.lunchEnd || !time) return false;
     return time >= store.lunchStart && time <= store.lunchEnd;
@@ -133,7 +133,7 @@ export default function App() {
     if (!trackInput) return;
     const found = allBookings.find(b => b.displayId?.toUpperCase() === trackInput.trim().toUpperCase());
     if (found) setSearchedBooking(found);
-    else alert("Invalid ID");
+    else alert("Invalid Token ID");
   };
 
   const handleVendorLogin = async () => {
@@ -146,11 +146,11 @@ export default function App() {
       });
       setIsSessionVerified(true);
       setView('account');
-    } else alert("Invalid Credentials");
+    } else alert("Invalid Merchant ID or Key");
     setIsProcessing(false);
   };
 
-  if (loading) return <div className="h-screen flex items-center justify-center bg-emerald-600 text-white font-black animate-pulse">CHIPLUNCONNECT MASTER</div>;
+  if (loading) return <div className="h-screen flex items-center justify-center bg-emerald-600 text-white font-black animate-pulse uppercase tracking-widest text-xs">ChiplunConnect Master Engine</div>;
 
   return (
     <div className="max-w-md mx-auto bg-gray-50 min-h-screen flex flex-col shadow-2xl relative font-sans text-gray-900 overflow-x-hidden">
@@ -160,16 +160,16 @@ export default function App() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[500] flex items-center justify-center p-6 animate-in zoom-in-95">
            <div className="bg-white w-full rounded-[3.5rem] p-10 shadow-2xl">
               <Lucide.ShieldCheck size={48} className="text-emerald-500 mx-auto mb-4" />
-              <h3 className="text-xl font-black text-center mb-6 uppercase tracking-tighter">Confirm Booking</h3>
-              <div className="bg-gray-50 p-6 rounded-3xl space-y-3 mb-8 text-[10px] font-black uppercase border border-gray-100 shadow-inner">
-                 <div className="flex justify-between"><span>Provider:</span><span className="text-emerald-700">{bookingMeta.resourceName || 'Assigned'}</span></div>
-                 <div className="flex justify-between"><span>Schedule:</span><span>{bookingMeta.time}</span></div>
+              <h3 className="text-xl font-black text-center mb-6 uppercase tracking-tighter">Verify Details</h3>
+              <div className="bg-gray-50 p-6 rounded-3xl space-y-3 mb-8 text-[10px] font-black uppercase border border-gray-100 shadow-inner text-left">
+                 <div className="flex justify-between"><span>Merchant:</span><span className="text-emerald-800">{selectedStore?.name}</span></div>
+                 <div className="flex justify-between"><span>Provider:</span><span>{bookingMeta.resourceName || 'Assigned'}</span></div>
                  <div className="flex justify-between border-t border-gray-200 pt-3"><span>Payable:</span><span className="text-xl font-black text-emerald-600">₹{cart.reduce((a, b) => a + Number(b.price), 0)}</span></div>
               </div>
               <button disabled={isProcessing} onClick={handleFinalConfirm} className="w-full bg-emerald-600 text-white py-5 rounded-[2.5rem] font-black uppercase text-xs shadow-xl active:scale-95 transition-all">
                 {isProcessing ? 'Verifying...' : 'Book Now'}
               </button>
-              <button onClick={() => setShowConfirmModal(false)} className="w-full py-4 text-gray-400 font-black text-[10px] uppercase text-center">Go Back</button>
+              <button onClick={() => setShowConfirmModal(false)} className="w-full py-4 text-gray-400 font-black text-[10px] uppercase text-center w-full">Go Back</button>
            </div>
         </div>
       )}
@@ -179,34 +179,37 @@ export default function App() {
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[500] flex items-center justify-center p-6 animate-in fade-in">
            <div className="bg-white w-full rounded-[3rem] p-8 shadow-2xl border-2 border-rose-100 text-center">
               <Lucide.Trash2 size={40} className="text-rose-500 mx-auto mb-4" />
-              <h3 className="text-xl font-black">Destroy Store?</h3>
-              <p className="text-gray-400 text-xs mt-3 mb-8">Erase <span className="font-bold underline">{deleteTarget.name}</span> and revoke all ID access forever.</p>
+              <h3 className="text-xl font-black uppercase">Destroy Records?</h3>
+              <p className="text-gray-400 text-xs mt-3 mb-8">Erase <span className="font-bold underline">{deleteTarget.name}</span> and all associated ID data forever.</p>
               <button onClick={async () => {
                 setIsProcessing(true);
                 const mid = deleteTarget.merchantId;
                 await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', deleteTarget.id));
                 if (mid) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vendor_creds', mid.toUpperCase()));
-                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', deleteTarget.id));
+                // Use req document id instead of deleteTarget.id as they might differ now
+                const reqSnap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'requests'), where("uid", "==", deleteTarget.ownerId)));
+                reqSnap.forEach(async (d) => await deleteDoc(d.ref));
                 setDeleteTarget(null);
                 setIsProcessing(false);
-              }} className="w-full bg-rose-500 text-white py-4 rounded-2xl font-black uppercase text-xs mb-3">Wipe Data</button>
-              <button onClick={() => setDeleteTarget(null)} className="w-full py-4 text-gray-400 font-bold text-xs uppercase">Cancel</button>
+              }} className="w-full bg-rose-50 text-rose-500 py-4 rounded-2xl font-black uppercase text-xs mb-3 border border-rose-100">Permanently Wipe</button>
+              <button onClick={() => setDeleteTarget(null)} className="w-full py-4 text-gray-400 font-bold text-xs uppercase text-center w-full">Cancel</button>
            </div>
         </div>
       )}
 
+      {/* HEADER */}
       <header className="bg-emerald-600 text-white p-6 pb-12 rounded-b-[4rem] shadow-lg sticky top-0 z-50">
         <div className="flex justify-between items-center mb-6">
           <div onClick={() => setView('home')} className="cursor-pointer active:scale-95 transition-all">
             <h1 className="text-2xl font-black tracking-tighter italic">ChiplunConnect</h1>
-            <p className="text-[9px] font-bold opacity-70 uppercase tracking-widest italic font-black">Pro V25 • Master Edition</p>
+            <p className="text-[9px] font-bold opacity-70 uppercase tracking-widest italic font-black">Pro Stable • MH-08</p>
           </div>
           <button onClick={() => setView('admin')} className="w-10 h-10 bg-white/10 rounded-2xl flex items-center justify-center border border-white/5 active:bg-white/30"><Lucide.Lock size={20}/></button>
         </div>
         {view === 'home' && (
           <div className="relative animate-in slide-in-from-top-2">
             <Lucide.Search className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-300" size={18} />
-            <input type="text" placeholder="Search verified services..." className="w-full bg-white/10 border border-white/20 rounded-2xl py-3.5 pl-12 pr-4 text-white placeholder-emerald-200 outline-none" />
+            <input type="text" placeholder="Search Chiplun marketplace..." className="w-full bg-white/10 border border-white/20 rounded-2xl py-3.5 pl-12 pr-4 text-white placeholder-emerald-200 outline-none" />
           </div>
         )}
       </header>
@@ -225,15 +228,15 @@ export default function App() {
                ))}
              </div>
 
-             <section className="animate-in slide-in-from-bottom-4">
-               <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 ml-1 italic font-black">Live Businesses MH-08</h2>
+             <section className="animate-in slide-in-from-bottom-4 pb-10">
+               <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 ml-1 italic font-black">Live Businesses</h2>
                <div className="space-y-4">
                  {stores.filter(s => s.isLive).map(store => (
                    <div key={store.id} onClick={() => { setSelectedStore(store); setView('detail'); setCart([]); setBookingMeta({ ...bookingMeta, resourceName: '' }); }} className="bg-white p-3 rounded-[2.5rem] flex gap-4 items-center shadow-sm border border-gray-100 hover:border-emerald-200 active:scale-[0.98] transition-all group">
                      <img src={store.image || "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=400"} className="w-20 h-20 rounded-[2rem] object-cover bg-gray-50 shadow-sm" />
                      <div className="flex-1">
                        <span className={`text-[7px] font-black uppercase px-2 py-0.5 rounded-full mb-1 inline-block ${store.category === 'salon' ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>{store.category}</span>
-                       <h3 className="font-bold text-gray-800 text-sm uppercase tracking-tight">{store.name}</h3>
+                       <h3 className="font-bold text-gray-800 text-sm leading-tight uppercase tracking-tight">{store.name}</h3>
                        <p className="text-[10px] text-gray-400 font-medium italic mt-0.5">{store.address}</p>
                      </div>
                      <Lucide.ChevronRight size={18} className="text-gray-200 mr-2 group-hover:text-emerald-400" />
@@ -252,7 +255,6 @@ export default function App() {
              <section className="bg-white p-6 rounded-[3rem] shadow-sm border border-gray-100">
                <h2 className="text-2xl font-black italic text-emerald-900 uppercase tracking-tighter">{selectedStore.name}</h2>
                <p className="text-gray-400 text-xs mb-8 flex items-center italic font-medium"><Lucide.MapPin size={12} className="mr-1"/> {selectedStore.address}</p>
-               
                <h3 className="text-[10px] font-black text-gray-400 uppercase mb-4 tracking-widest font-black">Choose Services</h3>
                <div className="space-y-3">
                  {selectedStore.services?.map((s, i) => (
@@ -272,14 +274,12 @@ export default function App() {
                       <input type="date" onChange={e => setBookingMeta({...bookingMeta, date: e.target.value})} className="flex-1 bg-gray-50 p-4 rounded-2xl font-bold text-sm outline-none border border-gray-100 shadow-inner" />
                       <input type="time" onChange={e => setBookingMeta({...bookingMeta, time: e.target.value})} className="w-32 bg-gray-50 p-4 rounded-2xl font-bold text-sm outline-none border border-gray-100 shadow-inner" />
                    </div>
-
                    {isMerchantOnBreak(bookingMeta.time, selectedStore) && (
                       <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 flex items-center gap-3 animate-pulse">
                          <Lucide.Coffee size={20} className="text-amber-600"/>
                          <p className="text-[9px] font-black text-amber-800 uppercase italic">Merchant on lunch break ({selectedStore.lunchStart} to {selectedStore.lunchEnd}). Pick another time.</p>
                       </div>
                    )}
-
                    <select onChange={e => setBookingMeta({...bookingMeta, resourceName: e.target.value})} className="w-full bg-gray-50 p-4 rounded-2xl outline-none font-bold text-sm shadow-inner">
                       <option value="">{selectedStore.category === 'salon' ? 'Select Stylist' : 'Auto-Select'}</option>
                       {selectedStore.staff?.map((st, i) => {
@@ -287,7 +287,6 @@ export default function App() {
                          return <option key={i} value={st} disabled={busy}>{st} {busy ? '(BUSY)' : ''}</option>
                       })}
                    </select>
-
                    <input placeholder="WhatsApp Phone" type="tel" value={bookingMeta.custPhone} onChange={e => setBookingMeta({...bookingMeta, custPhone: e.target.value})} className="w-full bg-gray-50 p-4 rounded-2xl font-bold text-sm outline-none border border-gray-100 uppercase shadow-inner" />
                    <button disabled={!bookingMeta.date || !bookingMeta.time || isMerchantOnBreak(bookingMeta.time, selectedStore)} onClick={() => setShowConfirmModal(true)} className="w-full bg-emerald-600 text-white py-5 rounded-3xl font-black shadow-xl uppercase active:scale-95 transition-all tracking-widest disabled:opacity-40">
                       {isMerchantOnBreak(bookingMeta.time, selectedStore) ? 'Merchant on Break' : 'Review & Secure'}
@@ -298,7 +297,7 @@ export default function App() {
            </div>
         )}
 
-        {/* VIEW: MERCHANT ACCOUNT (Ledger + UI Restoration) */}
+        {/* VIEW: MERCHANT HUB (Ledger + Logic Restoration) */}
         {view === 'account' && (
            <div className="pt-4 space-y-6 px-4 pb-10 animate-in slide-in-from-bottom-4 text-left">
               {!isSessionVerified ? (
@@ -308,8 +307,8 @@ export default function App() {
                        <h2 className="text-3xl font-black uppercase tracking-tighter italic text-emerald-900 text-center uppercase">Merchant Access</h2>
                     </div>
                     <div className="bg-white p-8 rounded-[3.5rem] shadow-2xl space-y-4 border border-gray-100">
-                       <input placeholder="Merchant User ID" value={vendorLogin.id} onChange={e => setVendorLogin({...vendorLogin, id: e.target.value})} className="w-full bg-gray-50 p-4 rounded-2xl font-bold text-sm outline-none uppercase shadow-inner" />
-                       <input type="password" placeholder="Passcode" value={vendorLogin.pass} onChange={e => setVendorLogin({...vendorLogin, pass: e.target.value})} className="w-full bg-gray-50 p-4 rounded-2xl font-bold text-sm outline-none shadow-inner" />
+                       <input placeholder="Merchant User ID" value={vendorLogin.id} onChange={e => setVendorLogin({...vendorLogin, id: e.target.value})} className="w-full bg-gray-50 p-4 rounded-2xl font-bold text-sm outline-none uppercase shadow-inner border" />
+                       <input type="password" placeholder="Passcode" value={vendorLogin.pass} onChange={e => setVendorLogin({...vendorLogin, pass: e.target.value})} className="w-full bg-gray-50 p-4 rounded-2xl font-bold text-sm outline-none shadow-inner border" />
                        <button onClick={handleVendorLogin} className="w-full bg-emerald-600 text-white py-5 rounded-[2rem] font-black shadow-xl uppercase active:scale-95 transition-all tracking-widest">Authorize Session</button>
                     </div>
                  </div>
@@ -319,10 +318,10 @@ export default function App() {
 
                    {/* LIVE LEDGER */}
                    <section className="bg-emerald-600 text-white p-7 rounded-[3rem] shadow-xl space-y-4 border border-black/5">
-                      <h3 className="text-[10px] font-black uppercase tracking-widest flex items-center opacity-80 italic"><Lucide.Calendar size={14} className="mr-2"/> Incoming Queue</h3>
+                      <h3 className="text-[10px] font-black uppercase tracking-widest flex items-center opacity-80 italic font-black"><Lucide.Calendar size={14} className="mr-2"/> Incoming Queue</h3>
                       <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
                         {merchantBookings.length > 0 ? merchantBookings.sort((a,b) => b.timestamp - a.timestamp).map((b, i) => (
-                           <div key={i} className="bg-white/10 p-4 rounded-2xl border border-white/5 space-y-1">
+                           <div key={i} className="bg-white/10 p-4 rounded-2xl border border-white/5 space-y-1 animate-in fade-in">
                               <div className="flex justify-between font-black text-[11px] uppercase italic"><span>{b.custName || 'Guest'}</span><span className="text-emerald-200">#{b.displayId}</span></div>
                               <div className="bg-emerald-700/50 px-3 py-1 rounded-xl inline-block mt-1"><p className="text-[9px] font-black text-emerald-50 uppercase tracking-tighter italic">Booked: {b.services?.map(s => s.name).join(', ')}</p></div>
                               <p className="text-[9px] opacity-70 uppercase font-bold tracking-widest block pt-1">{b.date} • {b.time} • {b.resourceName || 'Assigned'}</p>
@@ -339,14 +338,14 @@ export default function App() {
                         <div className="space-y-1"><p className="text-[8px] font-black text-gray-400 uppercase ml-1">Lunch Start</p><input type="time" value={editForm.lunchStart} onChange={e => setEditForm({...editForm, lunchStart: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" /></div>
                         <div className="space-y-1"><p className="text-[8px] font-black text-gray-400 uppercase ml-1">Lunch End</p><input type="time" value={editForm.lunchEnd} onChange={e => setEditForm({...editForm, lunchEnd: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" /></div>
                       </div>
-                      <input placeholder="Image URL (Logo)" value={editForm.image} onChange={e => setEditForm({...editForm, image: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" />
+                      <input placeholder="Logo Image URL" value={editForm.image} onChange={e => setEditForm({...editForm, image: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border uppercase" />
                       <input placeholder="Shop Name" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-xs outline-none shadow-inner border" />
-                      <button onClick={async () => { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), editForm); alert("Updated Successfully!"); }} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] shadow-lg">Save Settings</button>
+                      <button onClick={async () => { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), editForm); alert("Sync Complete!"); }} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] shadow-lg">Save Settings</button>
                    </section>
 
-                   {/* UI RESTORED: SERVICES MANAGEMENT */}
+                   {/* UI RESTORED: PRICE LIST */}
                    <section className="bg-white p-7 rounded-[3rem] shadow-sm border border-gray-100">
-                      <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6 font-black uppercase">Service Menu (Price List)</h3>
+                      <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6 font-black uppercase">Service Menu (Multiple Price Options)</h3>
                       <div className="space-y-3 mb-6 max-h-40 overflow-y-auto pr-1">
                         {myStore?.services?.map((s, i) => (
                            <div key={i} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl font-bold text-sm border border-gray-100">
@@ -362,28 +361,27 @@ export default function App() {
                         <input placeholder="New Service Title" value={newSvc.name} onChange={e => setNewSvc({...newSvc, name: e.target.value})} className="w-full bg-gray-50 p-3 rounded-xl text-xs outline-none uppercase font-bold border" />
                         <div className="grid grid-cols-2 gap-2">
                            <input placeholder="Price ₹" type="number" value={newSvc.price} onChange={e => setNewSvc({...newSvc, price: e.target.value})} className="bg-gray-50 p-3 rounded-xl text-xs outline-none font-bold border" />
-                           <input placeholder="Duration (min)" type="number" value={newSvc.duration} onChange={e => setNewSvc({...newSvc, duration: e.target.value})} className="bg-gray-50 p-3 rounded-xl text-xs outline-none font-bold border" />
+                           <input placeholder="Mins" type="number" value={newSvc.duration} onChange={e => setNewSvc({...newSvc, duration: e.target.value})} className="bg-gray-50 p-3 rounded-xl text-xs outline-none font-bold border" />
                         </div>
                         <button onClick={async () => {
                            if(!newSvc.name || !newSvc.price) return;
                            const current = myStore?.services || [];
                            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { services: [...current, newSvc] });
                            setNewSvc({name:'', price:'', duration:'30'});
-                        }} className="w-full bg-emerald-600 text-white py-3 rounded-xl font-black uppercase text-[10px] shadow-lg">Add to List</button>
+                        }} className="w-full bg-emerald-600 text-white py-3 rounded-xl font-black uppercase text-[10px] shadow-lg">Add to Price List</button>
                       </div>
                    </section>
 
                    <section className="bg-white p-7 rounded-[3rem] shadow-sm border border-gray-100">
-                      <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6 font-black uppercase">Staff Capacity</h3>
+                      <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6 font-black uppercase tracking-widest italic">Staff Management</h3>
                       <div className="flex flex-wrap gap-2 mb-6">
                         {myStore?.staff?.map((n, i) => (<div key={i} className="bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2">{n} <button onClick={() => { updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { staff: myStore.staff.filter((_, idx) => idx !== i) }); }}><Lucide.X size={12}/></button></div>))}
                       </div>
-                      <div className="flex gap-2"><input placeholder="Add Name" value={newStaff} onChange={e => setNewStaff(e.target.value)} className="flex-1 bg-gray-50 p-3 rounded-lg font-bold text-sm outline-none border shadow-inner" /><button onClick={() => { if(!newStaff) return; updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { staff: [...(myStore.staff || []), newStaff] }); setNewStaff(''); }} className="bg-emerald-600 text-white p-3 rounded-lg active:scale-95 shadow-lg"><Lucide.Plus size={18}/></button></div>
+                      <div className="flex gap-2"><input placeholder="Name" value={newStaff} onChange={e => setNewStaff(e.target.value)} className="flex-1 bg-gray-50 p-3 rounded-lg font-bold text-sm outline-none border shadow-inner" /><button onClick={() => { if(!newStaff) return; updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { staff: [...(myStore.staff || []), newStaff] }); setNewStaff(''); }} className="bg-emerald-600 text-white p-3 rounded-lg active:scale-95 shadow-lg"><Lucide.Plus size={18}/></button></div>
                    </section>
 
-                   {/* LIVE STATUS TOGGLE */}
                    <button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { isLive: !myStore?.isLive })} className={`w-full py-6 rounded-[2.5rem] font-black uppercase shadow-2xl active:scale-95 transition-all ${myStore?.isLive ? 'bg-rose-500 text-white shadow-rose-100' : 'bg-emerald-600 text-white shadow-emerald-100'}`}>
-                      {myStore?.isLive ? 'Go Offline (Close Shop)' : 'Set Business Live (Open)'}
+                      {myStore?.isLive ? 'Shut Shop (Go Offline)' : 'Open Shop (Go Live)'}
                    </button>
                 </div>
               )}
@@ -395,20 +393,20 @@ export default function App() {
            <div className="pt-4 space-y-6 animate-in slide-in-from-bottom-4 px-4 pb-20 text-center">
               <div className="text-center mb-10">
                  <Lucide.Building2 size={56} className="mx-auto text-emerald-600 mb-2 p-4 bg-emerald-50 rounded-[2.5rem] shadow-inner" />
-                 <h2 className="text-3xl font-black uppercase tracking-tighter text-emerald-900 italic">Join Us</h2>
+                 <h2 className="text-3xl font-black uppercase tracking-tighter text-emerald-900 italic">Apply to join</h2>
                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest text-center">Register business for MH-08</p>
               </div>
-              <div className="bg-white p-7 rounded-[3.5rem] shadow-xl space-y-4 border border-gray-100 text-left">
-                 <input placeholder="Official Shop Name" value={regForm.bizName} onChange={e => setRegForm({...regForm, bizName: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-sm outline-none border border-transparent focus:border-emerald-200 uppercase" />
-                 <input placeholder="Location Area" value={regForm.addr} onChange={e => setRegForm({...regForm, addr: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-sm outline-none border border-transparent focus:border-emerald-200 uppercase" />
-                 <select value={regForm.cat} onChange={e => setRegForm({...regForm, cat: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-sm outline-none border border-transparent focus:border-emerald-200">
+              <div className="bg-white p-7 rounded-[3.5rem] shadow-xl space-y-4 border border-gray-100 text-left text-xs font-black uppercase">
+                 <input placeholder="Shop Name" value={regForm.bizName} onChange={e => setRegForm({...regForm, bizName: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl outline-none border border-transparent focus:border-emerald-200 uppercase shadow-inner" />
+                 <input placeholder="Location" value={regForm.addr} onChange={e => setRegForm({...regForm, addr: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl outline-none border border-transparent focus:border-emerald-200 uppercase shadow-inner" />
+                 <select value={regForm.cat} onChange={e => setRegForm({...regForm, cat: e.target.value})} className="w-full bg-gray-50 p-4 rounded-xl outline-none border border-transparent focus:border-emerald-200 shadow-inner">
                     <option value="salon">Salon & Wellness</option><option value="travel">Transport Service</option><option value="clinic">Clinic/Doctor</option><option value="repair">Service/Repair</option>
                  </select>
                  <button onClick={async () => {
-                    if(!regForm.bizName || !regForm.addr) return alert("Required fields missing");
-                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', user.uid), { uid: user.uid, ...regForm, status: 'pending', timestamp: Date.now() });
-                    alert("Sent!"); setView('home');
-                 }} className="w-full bg-emerald-600 text-white py-5 rounded-[2.5rem] font-black shadow-xl uppercase active:scale-95 transition-all tracking-widest">Launch Application</button>
+                    if(!regForm.bizName || !regForm.addr) return alert("All fields required");
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'requests'), { uid: user.uid, ...regForm, status: 'pending', timestamp: Date.now() });
+                    alert("Application Sent!"); setView('home');
+                 }} className="w-full bg-emerald-600 text-white py-5 rounded-[2.5rem] font-black shadow-xl active:scale-95 transition-all tracking-widest">Submit Application</button>
               </div>
            </div>
         )}
@@ -416,14 +414,13 @@ export default function App() {
         {/* VIEW: TRACK TOKEN */}
         {view === 'track' && (
            <div className="pt-4 space-y-6 animate-in slide-in-from-bottom-4 px-4 pb-20">
-              <h2 className="text-2xl font-black text-emerald-900 uppercase tracking-tighter italic">Token Search</h2>
+              <h2 className="text-2xl font-black text-emerald-900 uppercase tracking-tighter italic">Token Track</h2>
               <div className="bg-white p-2 rounded-[2.5rem] shadow-sm border border-gray-100 flex gap-2">
-                 <input placeholder="CH-XXXX" value={trackInput} onChange={e => setTrackInput(e.target.value)} className="flex-1 bg-transparent px-5 py-3 outline-none font-black tracking-widest text-sm uppercase" />
-                 <button onClick={handleTrackToken} className="bg-emerald-600 text-white p-3 rounded-2xl active:scale-90 transition-all shadow-lg"><Lucide.Search size={22}/></button>
+                 <input placeholder="Enter CH-XXXX" value={trackInput} onChange={e => setTrackInput(e.target.value)} className="flex-1 bg-transparent px-5 py-3 outline-none font-black tracking-widest text-sm uppercase" />
+                 <button onClick={handleTrackToken} className="bg-emerald-600 text-white p-3 rounded-2xl active:scale-90 transition-all shadow-lg shadow-emerald-50"><Lucide.Search size={22}/></button>
               </div>
-
               {searchedBooking ? (
-                <div className="bg-emerald-600 text-white p-8 rounded-[3.5rem] shadow-2xl animate-in zoom-in-95 relative overflow-hidden text-left">
+                <div className="bg-emerald-600 text-white p-8 rounded-[3.5rem] shadow-2xl animate-in zoom-in-95 relative overflow-hidden text-left shadow-emerald-100">
                    <div className="absolute top-0 right-0 p-4 opacity-10"><Lucide.CheckCircle size={80}/></div>
                    <div className="flex justify-between items-start mb-8 relative z-10">
                       <div><p className="text-[10px] font-black uppercase opacity-60">Verified Slot</p><h3 className="text-xl font-black italic uppercase tracking-tight">{searchedBooking.storeName}</h3></div>
@@ -431,18 +428,15 @@ export default function App() {
                    </div>
                    <div className="space-y-4 text-sm font-bold relative z-10 border-t border-white/10 pt-6">
                       <div className="grid grid-cols-2 gap-4">
-                         <div><p className="opacity-60 text-[8px] uppercase mb-1">Queue Slot</p>#{searchedBooking.queuePos || '1'}</div>
+                         <div><p className="opacity-60 text-[8px] uppercase mb-1">Queue Pos</p>#{searchedBooking.queuePos || '1'}</div>
                          <div><p className="opacity-60 text-[8px] uppercase mb-1">Assigned</p>{searchedBooking.resourceName || 'First Free'}</div>
                       </div>
-                      <div className="bg-white/10 p-4 rounded-3xl">
-                         <p className="opacity-60 text-[8px] uppercase mb-1 italic text-emerald-100">Schedule Detail</p>
-                         <p>{searchedBooking.date} • {searchedBooking.time}</p>
-                      </div>
+                      <div className="bg-white/10 p-4 rounded-3xl"><p className="opacity-60 text-[8px] uppercase mb-1 italic text-emerald-100">Schedule Detail</p><p>{searchedBooking.date} • {searchedBooking.time}</p></div>
                    </div>
-                   <button onClick={() => setSearchedBooking(null)} className="w-full mt-10 py-3 text-[10px] font-black uppercase bg-white/10 rounded-2xl">New Search</button>
+                   <button onClick={() => setSearchedBooking(null)} className="w-full mt-10 py-3 text-[10px] font-black uppercase bg-white/10 rounded-2xl">New Track</button>
                 </div>
               ) : (
-                <p className="text-center py-20 text-gray-300 text-[10px] font-black uppercase tracking-widest animate-pulse italic">Enter token code to track status</p>
+                <p className="text-center py-20 text-gray-300 text-[10px] font-black uppercase tracking-widest animate-pulse italic">Enter code to track live status</p>
               )}
            </div>
         )}
@@ -468,24 +462,26 @@ export default function App() {
                 </div>
               ))}
               <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mt-10">Application Inbox</h3>
-              {requests.filter(r => r.status === 'pending').map(req => (
-                  <div key={req.id} className="bg-amber-50 p-7 rounded-[3rem] space-y-4 border border-amber-100 shadow-sm animate-in fade-in">
-                    <h4 className="font-bold text-sm uppercase italic">{req.bizName}</h4>
-                    <div className="flex gap-2">
-                      <input id={`id-${req.id}`} placeholder="Set ID" className="flex-1 p-3 rounded-xl text-xs font-bold outline-none uppercase border border-amber-200" />
-                      <input id={`pw-${req.id}`} placeholder="Set Key" className="w-20 p-3 rounded-xl text-xs font-bold outline-none border border-amber-200" />
+              <div className="space-y-4">
+                 {requests.filter(r => r.status === 'pending').map(req => (
+                    <div key={req.id} className="bg-amber-50 p-7 rounded-[3rem] space-y-4 border border-amber-100 shadow-sm animate-in fade-in">
+                       <h4 className="font-bold text-sm uppercase italic">{req.bizName}</h4>
+                       <div className="flex gap-2">
+                         <input id={`id-${req.id}`} placeholder="Issue ID" className="flex-1 p-3 rounded-xl text-xs font-bold outline-none uppercase border border-amber-200" />
+                         <input id={`pw-${req.id}`} placeholder="Key" className="w-20 p-3 rounded-xl text-xs font-bold outline-none border border-amber-200" />
+                       </div>
+                       <button onClick={async () => {
+                           const mid = document.getElementById(`id-${req.id}`).value;
+                           const pass = document.getElementById(`pw-${req.id}`).value;
+                           if(!mid || !pass) return;
+                           await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vendor_creds', mid.toUpperCase()), { password: pass, uid: req.uid, businessName: req.bizName });
+                           await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', req.id), { status: 'approved' });
+                           await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', req.uid), { name: req.bizName, address: req.addr, category: req.cat || 'salon', ownerId: req.uid, merchantId: mid.toUpperCase(), isLive: false, services: [], staff: [], image: "", lunchStart: '13:00', lunchEnd: '14:00' });
+                           alert("Approved!");
+                        }} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] shadow-lg">Authorize Entrance</button>
                     </div>
-                    <button onClick={async () => {
-                        const mid = document.getElementById(`id-${req.id}`).value;
-                        const pass = document.getElementById(`pw-${req.id}`).value;
-                        if(!mid || !pass) return;
-                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vendor_creds', mid.toUpperCase()), { password: pass, uid: req.uid, businessName: req.bizName });
-                        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', req.uid), { status: 'approved' });
-                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', req.uid), { name: req.bizName, address: req.addr, category: req.cat || 'salon', ownerId: req.uid, merchantId: mid.toUpperCase(), isLive: false, services: [], staff: [], image: "", lunchStart: '13:00', lunchEnd: '14:00' });
-                        alert("Merchant Live!");
-                      }} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] shadow-lg">Verify Entrance</button>
-                  </div>
-                ))}
+                 ))}
+              </div>
             </div>
           </div>
         )}
@@ -497,7 +493,7 @@ export default function App() {
              <h2 className="text-4xl font-black text-emerald-900 mb-6 uppercase tracking-tighter italic">Reserved</h2>
              <div className="bg-emerald-600 text-white p-8 rounded-[3.5rem] shadow-2xl space-y-6 relative overflow-hidden text-center shadow-emerald-200">
                 <div className="absolute top-0 right-0 p-4 opacity-10"><Lucide.Clock size={100}/></div>
-                <div><p className="text-[10px] font-black uppercase opacity-60 mb-2 italic tracking-widest">Unique Booking Token</p><h3 className="text-5xl font-black tracking-widest italic">{lastBookingId}</h3></div>
+                <div><p className="text-[10px] font-black uppercase opacity-60 mb-2 italic tracking-widest">Unique Token</p><h3 className="text-5xl font-black tracking-widest italic">{lastBookingId}</h3></div>
                 <div className="grid grid-cols-2 gap-4 border-t border-white/10 pt-6 font-black uppercase">
                    <div className="text-center border-r border-white/10"><p className="text-[8px] opacity-60 font-black tracking-widest">Position</p><p className="text-2xl">#{queueInfo.pos}</p></div>
                    <div className="text-center"><p className="text-[8px] opacity-60 font-black tracking-widest">Wait</p><p className="text-2xl">+{queueInfo.delay}m</p></div>
@@ -514,10 +510,9 @@ export default function App() {
         <button onClick={() => setView('home')} className={`flex flex-col items-center gap-1.5 transition-all ${view === 'home' ? 'text-emerald-600 scale-110' : 'text-gray-300'}`}><Lucide.Home size={22} /><span className="text-[9px] font-black uppercase tracking-widest">Explore</span></button>
         <button onClick={() => setView('onboarding')} className={`flex flex-col items-center gap-1.5 transition-all ${view === 'onboarding' ? 'text-emerald-600 scale-110' : 'text-gray-300'}`}><Lucide.Building2 size={22} /><span className="text-[9px] font-black uppercase tracking-widest">Business</span></button>
         <button onClick={() => { setView('track'); setSearchedBooking(null); }} className={`flex flex-col items-center gap-1.5 transition-all ${view === 'track' ? 'text-emerald-600 scale-110' : 'text-gray-300'}`}><Lucide.Calendar size={22} /><span className="text-[9px] font-black uppercase tracking-widest">Track</span></button>
-        <button onClick={() => setView('account')} className={`flex flex-col items-center gap-1.5 transition-all ${['account', 'dashboard'].includes(view) ? 'text-emerald-600 scale-110' : 'text-gray-300'}`}><Lucide.UserCircle size={22} /><span className="text-[9px] font-black uppercase tracking-widest">Account</span></button>
+        <button onClick={() => setView('account')} className={`flex flex-col items-center gap-1.5 transition-all ${['account', 'merchant_hub', 'dashboard'].includes(view) ? 'text-emerald-600 scale-110' : 'text-gray-300'}`}><Lucide.UserCircle size={22} /><span className="text-[9px] font-black uppercase tracking-widest">Account</span></button>
       </nav>
 
     </div>
   );
 }
-
