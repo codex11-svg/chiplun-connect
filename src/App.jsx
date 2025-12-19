@@ -141,10 +141,14 @@ export default function App() {
   const handleAdminLogin = async () => {
     setIsProcessing(true);
     try {
-      await signInWithEmailAndPassword(auth, adminEmail, adminPass);
-      notify("Root Access Authorized");
+      const res = await signInWithEmailAndPassword(auth, adminEmail, adminPass);
+      if(res.user.uid === MASTER_UID) {
+        notify("Admin System Online");
+      } else {
+        notify("Unauthorized UID Detected", "error");
+      }
     } catch (e) {
-      notify("Login Failed", "error");
+      notify("Invalid Credentials", "error");
     }
     setIsProcessing(false);
   };
@@ -152,10 +156,10 @@ export default function App() {
   const handleAdminLogout = async () => {
     try {
       await signOut(auth);
-      notify("Logged Out");
+      notify("Session Ended");
       setView('home');
     } catch (e) {
-      notify("Error", "error");
+      notify("Logout Failed", "error");
     }
   };
 
@@ -553,7 +557,7 @@ export default function App() {
                         <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
                         <input type="password" placeholder="System Password" value={adminPass} onChange={(e) => setAdminPass(e.target.value)} className="w-full bg-slate-50 p-5 pl-12 rounded-2xl border font-black text-xs outline-none focus:border-rose-500" />
                     </div>
-                    <button onClick={handleAdminLogin} className="w-full bg-rose-600 text-white py-5 rounded-2xl font-black shadow-xl uppercase active:scale-95 transition-all tracking-[0.2em]">Verify Identity</button>
+                    <button onClick={handleAdminLogin} className="w-full bg-rose-600 text-white py-5 rounded-2xl font-black shadow-xl uppercase active:scale-95 transition-all tracking-[0.2em]">Authorize Session</button>
                  </div>
                </div>
              ) : (
@@ -561,7 +565,7 @@ export default function App() {
                  <div className="flex justify-between items-center px-1">
                     <div>
                       <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest leading-none flex items-center gap-1"><ShieldCheck size={12}/> Root Session</p>
-                      <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">UID: ...{user.uid.slice(-6)}</p>
+                      <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">UID: Verified</p>
                     </div>
                     <button onClick={handleAdminLogout} className="flex items-center gap-2 px-4 py-2 bg-rose-50 text-rose-600 rounded-xl font-black text-[9px] uppercase tracking-tighter active:scale-90"><LogOut size={14}/> Sign Out</button>
                  </div>
@@ -572,7 +576,7 @@ export default function App() {
                  
                  {adminTab === 'requests' ? (
                    <div className="space-y-4">
-                     {requests.length === 0 ? <p className="text-center py-20 text-[10px] uppercase font-black text-slate-300 italic tracking-[0.2em]">No pending approvals</p> : 
+                     {requests.length === 0 ? <p className="text-center py-20 text-[10px] uppercase font-black text-slate-300 italic tracking-[0.2em]">No requests found</p> : 
                      requests.map(r => (
                         <div key={r.id} className="bg-white p-6 rounded-[2.5rem] border border-slate-100 space-y-4 shadow-sm">
                             <h4 className="font-black text-sm uppercase italic tracking-tight leading-none">{r.bizName}</h4>
