@@ -40,7 +40,7 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0
 const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = "chiplun-pro-v50-master-ironclad";
-const ADMIN_PIN = "112607";
+const MASTER_ADMIN_UID = "Ca1VEXEGVTZuS1EogwKV5ygsOdh1";
 
 export default function App() {
   // Global Session States
@@ -60,8 +60,6 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [activeStore, setActiveStore] = useState(null);
   const [activeCart, setActiveCart] = useState(null); 
-  const [adminAuth, setAdminAuth] = useState(false);
-  const [adminPin, setAdminPin] = useState('');
   const [adminTab, setAdminTab] = useState('requests');
   const [mTab, setMTab] = useState('ledger'); 
   const [hubView, setHubView] = useState('login');
@@ -97,7 +95,6 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     
-    // Use the specific paths defined in the system prompt instructions
     const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data');
     const storesRef = collection(db, 'artifacts', appId, 'public', 'data', 'stores');
     const bookingsRef = collection(db, 'artifacts', appId, 'public', 'data', 'bookings');
@@ -108,7 +105,9 @@ export default function App() {
         if (s.exists()) {
           setProfile(s.data());
         } else {
-          setDoc(profileRef, { role: 'customer', uid: user.uid });
+          // If the current user is the Master, give them Admin role immediately
+          const role = user.uid === MASTER_ADMIN_UID ? 'admin' : 'customer';
+          setDoc(profileRef, { role, uid: user.uid });
         }
       }, (err) => console.error("Profile error", err)),
       
@@ -273,15 +272,8 @@ export default function App() {
     if (!file || file.size > 1000000) return notify("Image too large (Max 1MB)", "error");
     const reader = new FileReader();
     reader.onloadend = async () => {
-       const img = new Image(); img.src = reader.result;
-       img.onload = async () => {
-          const canvas = document.createElement('canvas');
-          const MAX_W = 800; const scale = MAX_W / img.width;
-          canvas.width = MAX_W; canvas.height = img.height * scale;
-          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { image: canvas.toDataURL('image/jpeg', 0.6) });
-          notify("Image Updated!");
-       };
+       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { image: reader.result });
+       notify("Branding Updated");
     };
     reader.readAsDataURL(file);
   };
@@ -303,7 +295,9 @@ export default function App() {
             <p className="text-[10px] font-bold opacity-80 uppercase tracking-widest mt-1">Production V50</p>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => setView('admin')} className="w-10 h-10 rounded-2xl flex items-center justify-center bg-white/10 border border-white/10 active:bg-white active:text-emerald-600"><Shield size={18} /></button>
+            <button onClick={() => setView('admin')} className={`w-10 h-10 rounded-2xl flex items-center justify-center border transition-all ${user?.uid === MASTER_ADMIN_UID ? 'bg-amber-400 text-slate-900 border-amber-500' : 'bg-white/10 border-white/10'}`}>
+              <Shield size={18} />
+            </button>
             <button 
                onClick={() => setView(profile.role === 'vendor' ? 'merchant' : 'business')} 
                className={`w-10 h-10 rounded-2xl flex items-center justify-center border transition-all ${view === 'merchant' || view === 'business' ? 'bg-white text-emerald-600' : 'bg-white/10'}`}
@@ -344,7 +338,7 @@ export default function App() {
                <button onClick={() => setSearch('salon')} className="flex flex-col items-center gap-2"><div className="p-4 bg-white rounded-2xl border border-slate-100 shadow-sm"><Scissors size={20} className="text-rose-500"/></div><span className="text-[9px] font-black uppercase text-slate-400">Salon</span></button>
                <button onClick={() => setSearch('travel')} className="flex flex-col items-center gap-2"><div className="p-4 bg-white rounded-2xl border border-slate-100 shadow-sm"><Bus size={20} className="text-blue-500"/></div><span className="text-[9px] font-black uppercase text-slate-400">Travel</span></button>
                <button onClick={() => setView('track')} className="flex flex-col items-center gap-2"><div className="p-4 bg-white rounded-2xl border border-slate-100 shadow-sm"><Ticket size={20} className="text-emerald-500"/></div><span className="text-[9px] font-black uppercase text-slate-400">Tracker</span></button>
-               <button onClick={() => notify("More categories coming soon", "info")} className="flex flex-col items-center gap-2 opacity-30"><div className="p-4 bg-white rounded-2xl border border-slate-100 shadow-sm"><Plus size={20}/></div><span className="text-[9px] font-black uppercase text-slate-400">More</span></button>
+               <button onClick={() => setView('business')} className="flex flex-col items-center gap-2"><div className="p-4 bg-white rounded-2xl border border-slate-100 shadow-sm"><Plus size={20} className="text-amber-500"/></div><span className="text-[9px] font-black uppercase text-slate-400">Partner</span></button>
             </div>
             <section className="space-y-4">
               <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic px-1">Live from Chiplun</h2>
@@ -399,7 +393,7 @@ export default function App() {
 
         {/* VIEW: MERCHANT DASHBOARD */}
         {view === 'merchant' && (
-          <div className="pt-6 space-y-6 animate-in slide-in-from-bottom-8 px-1">
+          <div className="pt-6 space-y-6 animate-in slide-in-from-bottom-8 px-1 pb-32">
             {!merchantData ? (
                <div className="flex flex-col items-center justify-center py-20 gap-4">
                   <Loader2 className="animate-spin text-emerald-600" size={40} />
@@ -419,10 +413,10 @@ export default function App() {
                        <button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { isLive: !merchantData.store.isLive })} className={`w-14 h-8 rounded-full p-1 transition-all ${merchantData.store.isLive ? 'bg-emerald-600' : 'bg-slate-700'}`}><div className={`w-6 h-6 rounded-full transition-all bg-white ${merchantData.store.isLive ? 'ml-6' : 'ml-0'}`} /></button>
                     </div>
                     <div className="bg-white p-2 rounded-[2.5rem] border border-slate-100 shadow-lg relative overflow-hidden h-44 group">
-                       <img src={merchantData.store.image} className="w-full h-full object-cover rounded-[2rem] opacity-50 group-hover:opacity-100 transition-all" alt="Business" />
-                       <label className="absolute inset-0 flex flex-col items-center justify-center cursor-pointer">
-                          <Camera size={24} className="text-slate-800" />
-                          <span className="text-[8px] font-black uppercase mt-1 text-slate-800 px-2 text-center">Change Photo</span>
+                       <img src={merchantData.store.image} className="w-full h-full object-cover rounded-[2rem]" alt="Business" />
+                       <label className="absolute inset-0 flex flex-col items-center justify-center cursor-pointer bg-black/20 opacity-0 group-hover:opacity-100 transition-all rounded-[2rem]">
+                          <Camera size={24} className="text-white" />
+                          <span className="text-[8px] font-black uppercase mt-1 text-white px-2 text-center">Change Photo</span>
                           <input type="file" accept="image/*" onChange={handleImage} className="hidden" />
                        </label>
                     </div>
@@ -505,18 +499,19 @@ export default function App() {
 
         {/* VIEW: ADMIN Master */}
         {view === 'admin' && (
-          <div className="pt-10 space-y-6 animate-in fade-in px-2">
+          <div className="pt-10 space-y-6 animate-in fade-in px-2 pb-32">
              <div className="flex justify-between items-center px-1">
                 <h2 className="text-2xl font-black text-rose-600 uppercase italic tracking-tighter leading-none">Admin terminal</h2>
                 <button onClick={() => setView('home')} className="p-2 bg-slate-100 rounded-lg active:scale-90"><Compass size={18}/></button>
              </div>
-             {!adminAuth ? (
-               <div className="bg-white p-8 rounded-[3rem] shadow-2xl border border-rose-100 space-y-4 text-center">
-                 <input type="password" placeholder="System Terminal PIN" value={adminPin} onChange={(e) => setAdminPin(e.target.value)} className="w-full bg-slate-50 p-5 rounded-2xl border font-black text-center text-lg outline-none tracking-widest focus:border-rose-500" />
-                 <button onClick={() => { if (adminPin === ADMIN_PIN) setAdminAuth(true); else notify("Denied", "error"); }} className="w-full bg-rose-600 text-white py-5 rounded-2xl font-black shadow-xl uppercase active:scale-95 transition-all tracking-[0.2em]">Authorize Terminal</button>
+             {user?.uid !== MASTER_ADMIN_UID ? (
+               <div className="bg-white p-12 rounded-[3rem] shadow-2xl border border-rose-100 text-center space-y-4">
+                 <AlertCircle size={48} className="mx-auto text-rose-500 animate-pulse" />
+                 <h3 className="text-xl font-black uppercase italic tracking-tighter">Access Denied</h3>
+                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed">System restricted to Master Administrator UID. Unauthorized bypass attempts are logged by Firestore Protocol.</p>
                </div>
              ) : (
-               <div className="space-y-6 pb-20 px-1 animate-in slide-in-from-bottom-8">
+               <div className="space-y-6 animate-in slide-in-from-bottom-8">
                  <div className="flex bg-slate-200 p-1 rounded-2xl shadow-inner">
                     <button onClick={() => setAdminTab('requests')} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase transition-all ${adminTab === 'requests' ? 'bg-white text-rose-600 shadow-sm' : 'text-slate-500'}`}>Pending ({requests.length})</button>
                     <button onClick={() => setAdminTab('merchants')} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase transition-all ${adminTab === 'merchants' ? 'bg-white text-rose-600 shadow-sm' : 'text-slate-50'}`}>Live ({stores.length})</button>
@@ -673,8 +668,8 @@ export default function App() {
            <div className="space-y-8">
               <AlertCircle size={80} className="mx-auto animate-bounce" />
               <div className="space-y-2">
-                 <h3 className="text-4xl font-black uppercase italic tracking-tighter">Are you sure?</h3>
-                 <p className="text-sm font-bold uppercase opacity-70 tracking-widest leading-none">Confirm to generate Token ID</p>
+                 <h3 className="text-4xl font-black uppercase italic tracking-tighter leading-none">Final Step</h3>
+                 <p className="text-sm font-bold uppercase opacity-70 tracking-widest leading-none">Generate token for ₹{activeCart?.price}?</p>
               </div>
               <div className="space-y-3 pt-6">
                  <button onClick={handleBookingExecution} className="w-64 py-6 bg-white text-emerald-600 rounded-full font-black uppercase shadow-2xl active:scale-90 transition-all text-lg tracking-widest italic">YES, CONFIRM</button>
