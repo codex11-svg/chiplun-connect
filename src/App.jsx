@@ -3,7 +3,9 @@ import { initializeApp, getApps } from 'firebase/app';
 import { 
   getAuth, 
   signInAnonymously, 
-  onAuthStateChanged 
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut
 } from 'firebase/auth';
 import { 
   getFirestore, 
@@ -23,7 +25,7 @@ import {
   Search, Shield, Briefcase, Scissors, Bus, Ticket, Plus, 
   ChevronRight, MapPin, ArrowLeft, AlertCircle, Banknote, 
   Compass, Phone, CheckCircle2, X, Camera, Loader2, Trash2,
-  LogOut, ShieldCheck
+  LogOut, ShieldCheck, Lock, Mail
 } from 'lucide-react';
 
 // --- STABLE PRODUCTION CONFIG ---
@@ -62,10 +64,13 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [activeStore, setActiveStore] = useState(null);
   const [activeCart, setActiveCart] = useState(null); 
-  const [adminAuth, setAdminAuth] = useState(false);
   const [adminTab, setAdminTab] = useState('requests');
   const [mTab, setMTab] = useState('ledger'); 
   const [hubView, setHubView] = useState('login');
+
+  // Admin Login States
+  const [adminEmail, setAdminEmail] = useState('');
+  const [adminPass, setAdminPass] = useState('');
 
   // Form Data
   const [bookForm, setBookForm] = useState({ custName: '', date: '', time: '', phone: '', resId: '', seats: 1 });
@@ -88,11 +93,6 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
       if (!u) {
         try { await signInAnonymously(auth); } catch(e) { console.error("Auth fail", e); }
-      } else {
-        // Automatic high-privilege grant if UID matches your account
-        if (u.uid === MASTER_UID) {
-          setAdminAuth(true);
-        }
       }
       setUser(u);
     });
@@ -136,6 +136,28 @@ export default function App() {
       clearTimeout(timer); 
     };
   }, [user]);
+
+  // --- ADMIN HANDLERS ---
+  const handleAdminLogin = async () => {
+    setIsProcessing(true);
+    try {
+      await signInWithEmailAndPassword(auth, adminEmail, adminPass);
+      notify("System Authorized");
+    } catch (e) {
+      notify("Access Denied", "error");
+    }
+    setIsProcessing(false);
+  };
+
+  const handleAdminLogout = async () => {
+    try {
+      await signOut(auth);
+      notify("Logged Out");
+      setView('home');
+    } catch (e) {
+      notify("Error", "error");
+    }
+  };
 
   // --- LOGIC CALCULATIONS ---
   const marketplace = useMemo(() => (stores || []).filter(s => 
@@ -508,29 +530,41 @@ export default function App() {
           </div>
         )}
 
-        {/* VIEW: ADMIN Master (UID-RESTRICTED) */}
+        {/* VIEW: ADMIN Master (MODIFIED) */}
         {view === 'admin' && (
           <div className="pt-10 space-y-6 animate-in fade-in px-2">
              <div className="flex justify-between items-center px-1">
-                <h2 className="text-2xl font-black text-rose-600 uppercase italic tracking-tighter leading-none">Admin terminal</h2>
+                <h2 className="text-2xl font-black text-rose-600 uppercase italic tracking-tighter leading-none">Admin Terminal</h2>
                 <button onClick={() => setView('home')} className="p-2 bg-slate-100 rounded-lg active:scale-90"><Compass size={18}/></button>
              </div>
              
-             {/* STRICT UID AUTH CHECK */}
-             {!adminAuth || user?.uid !== MASTER_UID ? (
+             {user?.uid !== MASTER_UID ? (
                <div className="bg-white p-8 rounded-[3rem] shadow-2xl border border-rose-100 space-y-4 text-center">
-                 <ShieldCheck size={48} className="mx-auto text-rose-200 mb-2" />
-                 <h3 className="font-black uppercase text-rose-600 tracking-tighter leading-none">Identity Check Failed</h3>
-                 <p className="text-[10px] font-bold text-slate-400 uppercase leading-relaxed tracking-widest">
-                   Access is cryptographically restricted to the Master UID. Please log in with your primary email to proceed.
-                 </p>
-                 <button onClick={() => setView('home')} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest">Exit Terminal</button>
+                 <div className="relative w-20 h-20 mx-auto">
+                    <Shield className="w-full h-full text-rose-100" />
+                    <Lock className="absolute inset-0 m-auto text-rose-600" size={24} />
+                 </div>
+                 <div className="space-y-4">
+                    <div className="relative">
+                        <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+                        <input type="email" placeholder="Admin Email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} className="w-full bg-slate-50 p-5 pl-12 rounded-2xl border font-black text-xs outline-none focus:border-rose-500" />
+                    </div>
+                    <div className="relative">
+                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+                        <input type="password" placeholder="System Password" value={adminPass} onChange={(e) => setAdminPass(e.target.value)} className="w-full bg-slate-50 p-5 pl-12 rounded-2xl border font-black text-xs outline-none focus:border-rose-500" />
+                    </div>
+                    <button onClick={handleAdminLogin} className="w-full bg-rose-600 text-white py-5 rounded-2xl font-black shadow-xl uppercase active:scale-95 transition-all tracking-[0.2em]">Authorize Login</button>
+                 </div>
                </div>
              ) : (
                <div className="space-y-6 pb-20 px-1 animate-in slide-in-from-bottom-8">
+                 <div className="flex justify-between items-center px-1">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Verified Identity</p>
+                    <button onClick={handleAdminLogout} className="flex items-center gap-2 px-4 py-2 bg-rose-50 text-rose-600 rounded-xl font-black text-[9px] uppercase tracking-tighter active:scale-90"><LogOut size={14}/> Sign Out</button>
+                 </div>
                  <div className="flex bg-slate-200 p-1 rounded-2xl shadow-inner">
                     <button onClick={() => setAdminTab('requests')} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase transition-all ${adminTab === 'requests' ? 'bg-white text-rose-600 shadow-sm' : 'text-slate-500'}`}>Pending ({requests.length})</button>
-                    <button onClick={() => setAdminTab('merchants')} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase transition-all ${adminTab === 'merchants' ? 'bg-white text-rose-600 shadow-sm' : 'text-slate-50'}`}>Live ({stores.length})</button>
+                    <button onClick={() => setAdminTab('merchants')} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase transition-all ${adminTab === 'merchants' ? 'bg-white text-rose-600 shadow-sm' : 'text-slate-500'}`}>Live ({stores.length})</button>
                  </div>
                  {adminTab === 'requests' ? (requests || []).map(r => (
                     <div key={r.id} className="bg-white p-6 rounded-[2.5rem] border border-slate-100 space-y-4 shadow-sm animate-in slide-in-from-bottom-4">
