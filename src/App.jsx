@@ -64,6 +64,7 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [activeStore, setActiveStore] = useState(null);
   const [activeCart, setActiveCart] = useState(null); 
+  const [adminAuth, setAdminAuth] = useState(false); // Added back to track permission
   const [adminTab, setAdminTab] = useState('requests');
   const [mTab, setMTab] = useState('ledger'); 
   const [hubView, setHubView] = useState('login');
@@ -93,6 +94,13 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
       if (!u) {
         try { await signInAnonymously(auth); } catch(e) { console.error("Auth fail", e); }
+      } else {
+        // FIXED: Immediately unlock adminAuth state if UID matches
+        if (u.uid === MASTER_UID) {
+          setAdminAuth(true);
+        } else {
+          setAdminAuth(false);
+        }
       }
       setUser(u);
     });
@@ -113,6 +121,7 @@ export default function App() {
         if (s.exists()) {
           setProfile(s.data());
         } else {
+          // FIXED: Set correct initial role for master admin
           setDoc(profileRef, { role: user.uid === MASTER_UID ? 'admin' : 'customer', uid: user.uid });
         }
       }, (err) => console.error("Profile error", err)),
@@ -141,10 +150,15 @@ export default function App() {
   const handleAdminLogin = async () => {
     setIsProcessing(true);
     try {
-      await signInWithEmailAndPassword(auth, adminEmail, adminPass);
-      notify("System Authorized");
+      const res = await signInWithEmailAndPassword(auth, adminEmail, adminPass);
+      if(res.user.uid === MASTER_UID) {
+        setAdminAuth(true);
+        notify("Access Granted");
+      } else {
+        notify("Unauthorized UID", "error");
+      }
     } catch (e) {
-      notify("Access Denied", "error");
+      notify("Invalid Credentials", "error");
     }
     setIsProcessing(false);
   };
@@ -152,10 +166,11 @@ export default function App() {
   const handleAdminLogout = async () => {
     try {
       await signOut(auth);
+      setAdminAuth(false);
       notify("Logged Out");
       setView('home');
     } catch (e) {
-      notify("Error", "error");
+      notify("Logout Error", "error");
     }
   };
 
@@ -530,7 +545,7 @@ export default function App() {
           </div>
         )}
 
-        {/* VIEW: ADMIN Master (MODIFIED) */}
+        {/* VIEW: ADMIN Master (IDENTITY-DRIVEN) */}
         {view === 'admin' && (
           <div className="pt-10 space-y-6 animate-in fade-in px-2">
              <div className="flex justify-between items-center px-1">
@@ -538,7 +553,7 @@ export default function App() {
                 <button onClick={() => setView('home')} className="p-2 bg-slate-100 rounded-lg active:scale-90"><Compass size={18}/></button>
              </div>
              
-             {user?.uid !== MASTER_UID ? (
+             {!adminAuth || user?.uid !== MASTER_UID ? (
                <div className="bg-white p-8 rounded-[3rem] shadow-2xl border border-rose-100 space-y-4 text-center">
                  <div className="relative w-20 h-20 mx-auto">
                     <Shield className="w-full h-full text-rose-100" />
@@ -559,7 +574,10 @@ export default function App() {
              ) : (
                <div className="space-y-6 pb-20 px-1 animate-in slide-in-from-bottom-8">
                  <div className="flex justify-between items-center px-1">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Verified Identity</p>
+                    <div>
+                      <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest leading-none flex items-center gap-1"><ShieldCheck size={12}/> Root Session</p>
+                      <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">UID: ...{user.uid.slice(-6)}</p>
+                    </div>
                     <button onClick={handleAdminLogout} className="flex items-center gap-2 px-4 py-2 bg-rose-50 text-rose-600 rounded-xl font-black text-[9px] uppercase tracking-tighter active:scale-90"><LogOut size={14}/> Sign Out</button>
                  </div>
                  <div className="flex bg-slate-200 p-1 rounded-2xl shadow-inner">
