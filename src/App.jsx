@@ -64,7 +64,7 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [activeStore, setActiveStore] = useState(null);
   const [activeCart, setActiveCart] = useState(null); 
-  const [adminAuth, setAdminAuth] = useState(false); // Added back to track permission
+  const [adminAuth, setAdminAuth] = useState(false);
   const [adminTab, setAdminTab] = useState('requests');
   const [mTab, setMTab] = useState('ledger'); 
   const [hubView, setHubView] = useState('login');
@@ -93,9 +93,10 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
       if (!u) {
+        setAdminAuth(false);
         try { await signInAnonymously(auth); } catch(e) { console.error("Auth fail", e); }
       } else {
-        // FIXED: Immediately unlock adminAuth state if UID matches
+        // Unlock admin state if logged in user is YOU
         if (u.uid === MASTER_UID) {
           setAdminAuth(true);
         } else {
@@ -121,7 +122,6 @@ export default function App() {
         if (s.exists()) {
           setProfile(s.data());
         } else {
-          // FIXED: Set correct initial role for master admin
           setDoc(profileRef, { role: user.uid === MASTER_UID ? 'admin' : 'customer', uid: user.uid });
         }
       }, (err) => console.error("Profile error", err)),
@@ -150,15 +150,16 @@ export default function App() {
   const handleAdminLogin = async () => {
     setIsProcessing(true);
     try {
-      const res = await signInWithEmailAndPassword(auth, adminEmail, adminPass);
-      if(res.user.uid === MASTER_UID) {
+      const cred = await signInWithEmailAndPassword(auth, adminEmail, adminPass);
+      if (cred.user.uid === MASTER_UID) {
         setAdminAuth(true);
-        notify("Access Granted");
+        notify("Admin Access Verified");
       } else {
-        notify("Unauthorized UID", "error");
+        setAdminAuth(false);
+        notify("Identity Mismatch", "error");
       }
     } catch (e) {
-      notify("Invalid Credentials", "error");
+      notify("Login Failed", "error");
     }
     setIsProcessing(false);
   };
@@ -167,10 +168,10 @@ export default function App() {
     try {
       await signOut(auth);
       setAdminAuth(false);
-      notify("Logged Out");
       setView('home');
+      notify("Logged Out Safely");
     } catch (e) {
-      notify("Logout Error", "error");
+      notify("Error", "error");
     }
   };
 
@@ -545,7 +546,7 @@ export default function App() {
           </div>
         )}
 
-        {/* VIEW: ADMIN Master (IDENTITY-DRIVEN) */}
+        {/* VIEW: ADMIN MASTER (Identity-Locked) */}
         {view === 'admin' && (
           <div className="pt-10 space-y-6 animate-in fade-in px-2">
              <div className="flex justify-between items-center px-1">
@@ -553,6 +554,7 @@ export default function App() {
                 <button onClick={() => setView('home')} className="p-2 bg-slate-100 rounded-lg active:scale-90"><Compass size={18}/></button>
              </div>
              
+             {/* If not logged in as YOU, show login form */}
              {!adminAuth || user?.uid !== MASTER_UID ? (
                <div className="bg-white p-8 rounded-[3rem] shadow-2xl border border-rose-100 space-y-4 text-center">
                  <div className="relative w-20 h-20 mx-auto">
@@ -568,15 +570,16 @@ export default function App() {
                         <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
                         <input type="password" placeholder="System Password" value={adminPass} onChange={(e) => setAdminPass(e.target.value)} className="w-full bg-slate-50 p-5 pl-12 rounded-2xl border font-black text-xs outline-none focus:border-rose-500" />
                     </div>
-                    <button onClick={handleAdminLogin} className="w-full bg-rose-600 text-white py-5 rounded-2xl font-black shadow-xl uppercase active:scale-95 transition-all tracking-[0.2em]">Authorize Login</button>
+                    <button onClick={handleAdminLogin} className="w-full bg-rose-600 text-white py-5 rounded-2xl font-black shadow-xl uppercase active:scale-95 transition-all tracking-[0.2em]">Verify Identity</button>
                  </div>
                </div>
              ) : (
+               /* If UID matches, show all features and data */
                <div className="space-y-6 pb-20 px-1 animate-in slide-in-from-bottom-8">
                  <div className="flex justify-between items-center px-1">
                     <div>
                       <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest leading-none flex items-center gap-1"><ShieldCheck size={12}/> Root Session</p>
-                      <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">UID: ...{user.uid.slice(-6)}</p>
+                      <p className="text-[8px] font-bold text-slate-400 uppercase mt-1 tracking-widest leading-none italic">ID: ...{user.uid.slice(-6)}</p>
                     </div>
                     <button onClick={handleAdminLogout} className="flex items-center gap-2 px-4 py-2 bg-rose-50 text-rose-600 rounded-xl font-black text-[9px] uppercase tracking-tighter active:scale-90"><LogOut size={14}/> Sign Out</button>
                  </div>
@@ -584,20 +587,31 @@ export default function App() {
                     <button onClick={() => setAdminTab('requests')} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase transition-all ${adminTab === 'requests' ? 'bg-white text-rose-600 shadow-sm' : 'text-slate-500'}`}>Pending ({requests.length})</button>
                     <button onClick={() => setAdminTab('merchants')} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase transition-all ${adminTab === 'merchants' ? 'bg-white text-rose-600 shadow-sm' : 'text-slate-500'}`}>Live ({stores.length})</button>
                  </div>
-                 {adminTab === 'requests' ? (requests || []).map(r => (
-                    <div key={r.id} className="bg-white p-6 rounded-[2.5rem] border border-slate-100 space-y-4 shadow-sm animate-in slide-in-from-bottom-4">
-                        <h4 className="font-black text-sm uppercase italic tracking-tight leading-none">{r.bizName}</h4>
-                        <div className="flex gap-2">
-                          <button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', r.id))} className="flex-1 py-3 border border-rose-100 text-rose-500 rounded-2xl font-black text-[9px] uppercase active:scale-95">Reject</button>
-                          <button onClick={() => adminApprove(r)} className="flex-[2] py-3 bg-emerald-600 text-white rounded-2xl font-black text-[9px] uppercase shadow-lg active:scale-95 tracking-widest italic">Approve</button>
+                 
+                 {adminTab === 'requests' ? (
+                    <div className="space-y-4">
+                      {requests.length === 0 ? <p className="text-center py-20 text-[10px] uppercase font-black text-slate-300 italic tracking-[0.2em]">No pending approvals</p> : 
+                      requests.map(r => (
+                        <div key={r.id} className="bg-white p-6 rounded-[2.5rem] border border-slate-100 space-y-4 shadow-sm animate-in slide-in-from-bottom-4">
+                            <h4 className="font-black text-sm uppercase italic tracking-tight leading-none">{r.bizName}</h4>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase">{r.category} • {r.phone}</p>
+                            <div className="flex gap-2">
+                              <button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', r.id))} className="flex-1 py-3 border border-rose-100 text-rose-500 rounded-2xl font-black text-[9px] uppercase active:scale-95">Reject</button>
+                              <button onClick={() => adminApprove(r)} className="flex-[2] py-3 bg-emerald-600 text-white rounded-2xl font-black text-[9px] uppercase shadow-lg active:scale-95 tracking-widest italic">Approve</button>
+                            </div>
                         </div>
+                      ))}
                     </div>
-                 )) : (stores || []).map(s => (
-                    <div key={s.id} className="bg-white p-5 rounded-[2.5rem] border border-slate-100 shadow-sm flex justify-between items-center animate-in fade-in">
-                       <div><h4 className="font-black text-xs uppercase italic leading-none">{s.name}</h4><p className="text-[8px] font-black text-rose-600 mt-1 uppercase tracking-widest leading-none">ID: {s.merchantId}</p></div>
-                       <button onClick={() => { if(window.confirm("Purge Store?")) deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', s.id)); }} className="p-2 bg-slate-50 rounded-lg text-rose-600 active:scale-90 transition-all"><Trash2 size={16}/></button>
+                 ) : (
+                    <div className="space-y-3">
+                      {stores.map(s => (
+                        <div key={s.id} className="bg-white p-5 rounded-[2.5rem] border border-slate-100 shadow-sm flex justify-between items-center animate-in fade-in">
+                          <div><h4 className="font-black text-xs uppercase italic leading-none">{s.name}</h4><p className="text-[8px] font-black text-rose-600 mt-1 uppercase tracking-widest leading-none">ID: {s.merchantId}</p></div>
+                          <button onClick={() => { if(window.confirm("Purge Store?")) deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', s.id)); }} className="p-2 bg-slate-50 rounded-lg text-rose-600 active:scale-90 transition-all"><Trash2 size={16}/></button>
+                        </div>
+                      ))}
                     </div>
-                 ))}
+                 )}
                </div>
              )}
           </div>
