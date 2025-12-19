@@ -1,21 +1,32 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { initializeApp, getApps } from 'firebase/app';
 import { 
-  getAuth, signInAnonymously, onAuthStateChanged, 
-  signInWithEmailAndPassword, signOut 
+  getAuth, 
+  signInAnonymously, 
+  onAuthStateChanged 
 } from 'firebase/auth';
 import { 
-  getFirestore, collection, doc, setDoc, onSnapshot, updateDoc, 
-  getDoc, addDoc, deleteDoc, arrayUnion, arrayRemove 
+  getFirestore, 
+  collection, 
+  doc, 
+  setDoc, 
+  onSnapshot, 
+  updateDoc, 
+  getDoc, 
+  addDoc, 
+  deleteDoc, 
+  arrayUnion, 
+  arrayRemove,
+  query
 } from 'firebase/firestore';
 import { 
   Search, Shield, Briefcase, Scissors, Bus, Ticket, Plus, 
   ChevronRight, MapPin, ArrowLeft, AlertCircle, Banknote, 
   Compass, Phone, CheckCircle2, X, Camera, Loader2, Trash2,
-  LogOut, ShieldCheck, Mail, Lock, Key, Users, Layers
+  LogOut, ShieldCheck
 } from 'lucide-react';
 
-// --- STABLE CONFIG ---
+// --- STABLE PRODUCTION CONFIG ---
 const firebaseConfig = { 
   apiKey: "AIzaSyALH-taOmzYitK1XnOFuKMrqgFWJqVALSo", 
   authDomain: "chiplun-connect.firebaseapp.com", 
@@ -29,12 +40,10 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0
 const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = "chiplun-pro-v50-master-ironclad";
-
-// MASTER IDENTITY
 const MASTER_ADMIN_UID = "mno2A46Df1fKmme9JSqPE9CMFB02";
 
 export default function App() {
-  // Global States
+  // Global Session States
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState({ role: 'customer' });
   const [view, setView] = useState('home'); 
@@ -42,12 +51,12 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [toast, setToast] = useState(null);
   
-  // Database Collections
+  // Database States
   const [stores, setStores] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [requests, setRequests] = useState([]);
   
-  // Selection States
+  // View States
   const [search, setSearch] = useState('');
   const [activeStore, setActiveStore] = useState(null);
   const [activeCart, setActiveCart] = useState(null); 
@@ -55,12 +64,13 @@ export default function App() {
   const [mTab, setMTab] = useState('ledger'); 
   const [hubView, setHubView] = useState('login');
 
-  // Forms
-  const [adminCreds, setAdminCreds] = useState({ email: '', pass: '' });
-  const [vLogin, setVLogin] = useState({ id: '', pass: '' });
+  // Form Data
   const [bookForm, setBookForm] = useState({ custName: '', date: '', time: '', phone: '', resId: '', seats: 1 });
+  const [vLogin, setVLogin] = useState({ id: '', pass: '' });
   const [regForm, setRegForm] = useState({ bizName: '', phone: '', category: 'salon', address: '' });
   const [trackId, setTrackId] = useState('');
+
+  // Flow Modals
   const [showPayment, setShowPayment] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
@@ -69,25 +79,31 @@ export default function App() {
     setTimeout(() => setToast(null), 3500);
   };
 
-  // --- BOOTSTRAP AUTH ---
+  // --- AUTH BOOTSTRAP ---
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
       if (!u) {
-        try { await signInAnonymously(auth); } catch(e) { console.error("Auth Fail"); }
+        try { await signInAnonymously(auth); } catch(e) { console.error("Auth fail", e); }
       }
       setUser(u);
     });
     return () => unsubscribe();
   }, []);
 
-  // --- DATA SYNC ---
+  // --- DATA HYDRATION ---
   useEffect(() => {
     if (!user) return;
+    
     const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data');
+    const storesRef = collection(db, 'artifacts', appId, 'public', 'data', 'stores');
+    const bookingsRef = collection(db, 'artifacts', appId, 'public', 'data', 'bookings');
+    const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'requests');
+    
     const unsubs = [
       onSnapshot(profileRef, (s) => {
         if (s.exists()) {
           const data = s.data();
+          // Force admin role if UID matches master
           if (user.uid === MASTER_ADMIN_UID && data.role !== 'admin') {
             updateDoc(profileRef, { role: 'admin' });
           }
@@ -97,26 +113,30 @@ export default function App() {
           setDoc(profileRef, { role, uid: user.uid });
         }
       }),
-      onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'stores'), (s) => setStores(s.docs.map(d => ({ id: d.id, ...d.data() })))),
-      onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'bookings'), (s) => setBookings(s.docs.map(d => ({ id: d.id, ...d.data() })))),
-      onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'requests'), (s) => setRequests(s.docs.map(d => ({ id: d.id, ...d.data() }))))
+      onSnapshot(storesRef, (s) => setStores(s.docs.map(d => ({ id: d.id, ...d.data() })))),
+      onSnapshot(bookingsRef, (s) => setBookings(s.docs.map(d => ({ id: d.id, ...d.data() })))),
+      onSnapshot(requestsRef, (s) => setRequests(s.docs.map(d => ({ id: d.id, ...d.data() }))))
     ];
+    
     const timer = setTimeout(() => setLoading(false), 1500);
     return () => { unsubs.forEach(f => f()); clearTimeout(timer); };
   }, [user]);
 
   // --- LOGIC CALCULATIONS ---
   const marketplace = useMemo(() => (stores || []).filter(s => 
-    s?.isLive && (s?.name?.toLowerCase().includes(search.toLowerCase()) || s?.category?.toLowerCase().includes(search.toLowerCase()))
+    s?.isLive && (
+      s?.name?.toLowerCase().includes(search.toLowerCase()) || 
+      s?.category?.toLowerCase().includes(search.toLowerCase())
+    )
   ), [stores, search]);
 
   const merchantData = useMemo(() => {
     if (!profile?.businessId || !stores.length) return null;
     const s = stores.find(x => x.id === profile.businessId);
     if (!s) return null;
-    const q = bookings.filter(x => x.storeId === profile.businessId && x.status === 'pending').sort((a,b) => a.timestamp - b.timestamp);
+    const bPending = bookings.filter(x => x.storeId === profile.businessId && x.status === 'pending').sort((a,b) => a.timestamp - b.timestamp);
     const rev = bookings.filter(x => x.storeId === profile.businessId && x.status === 'completed').reduce((a,c) => a + (Number(c.totalPrice) || 0), 0);
-    return { store: s, queue: q, rev };
+    return { store: s, queue: bPending, rev };
   }, [bookings, profile, stores]);
 
   const checkAvailability = (sId, rId, cap) => {
@@ -133,18 +153,8 @@ export default function App() {
     return { ...live, pos: ahead.length + 1, wait: ahead.length * 20 };
   }, [bookings, trackId]);
 
-  // --- ACTION HANDLERS ---
-  const handleAdminAuth = async () => {
-    setIsProcessing(true);
-    try {
-      await signInWithEmailAndPassword(auth, adminCreds.email, adminCreds.pass);
-      notify("Master Authorized");
-      setAdminCreds({ email: '', pass: '' });
-    } catch (e) { notify("Verification Failed", "error"); }
-    setIsProcessing(false);
-  };
-
-  const handleMerchantLogin = async () => {
+  // --- HANDLERS ---
+  const handleVLogin = async () => {
     setIsProcessing(true);
     try {
       const credRef = doc(db, 'artifacts', appId, 'public', 'data', 'v_creds', vLogin.id.toUpperCase());
@@ -155,33 +165,32 @@ export default function App() {
           ...profile, role: 'vendor', businessId: data.storeId, businessName: data.businessName 
         });
         setView('merchant');
-        notify("Console Unlocked");
-      } else { notify("Access Key Invalid", "error"); }
-    } catch (e) { notify("Sync Failed", "error"); }
+        notify("Access Granted");
+      } else { notify("Invalid Key", "error"); }
+    } catch (e) { notify("Sync Error", "error"); }
     setIsProcessing(false);
   };
 
-  const executeBooking = async () => {
+  const handleBookingExecution = async () => {
     setIsProcessing(true);
     try {
-      const tokenId = "CH-" + Math.random().toString(36).substr(2, 5).toUpperCase();
+      const id = "CH-" + Math.random().toString(36).substr(2, 5).toUpperCase();
       const unit = Number(activeCart?.price || 0);
-      const total = activeStore?.category === 'travel' ? (unit * (bookForm.seats || 1)) : unit;
-      let finalTime = activeStore?.category === 'travel' ? (activeStore?.resources?.find(r => r.id === bookForm.resId)?.time || "Scheduled") : bookForm.time;
+      const total = activeStore.category === 'travel' ? (unit * (bookForm.seats || 1)) : unit;
+      let finalTime = activeStore.category === 'travel' ? (activeStore.resources?.find(r => r.id === bookForm.resId)?.time || "Scheduled") : bookForm.time;
       
       const payload = { 
-        ...bookForm, 
-        time: finalTime, displayId: tokenId, 
+        ...bookForm, time: finalTime, displayId: id, 
         storeId: activeStore.id, storeName: activeStore.name, 
         serviceName: activeCart.name, totalPrice: total, 
         status: 'pending', timestamp: Date.now() 
       };
 
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'bookings'), payload);
-      setTrackId(tokenId);
+      setTrackId(id);
       setShowConfirm(false); setShowPayment(false); setView('track');
-      notify("Token Issued");
-    } catch (e) { notify("Booking Error", "error"); }
+      notify("Token Confirmed!");
+    } catch (e) { notify("Submission Error", "error"); }
     setIsProcessing(false);
   };
 
@@ -191,10 +200,16 @@ export default function App() {
     if (!mid || !key) return;
     try {
       const sRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'stores'));
-      await setDoc(sRef, { name: req.bizName, category: req.category, address: req.address, isLive: false, merchantId: mid.toUpperCase(), image: "https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?w=800", services: [], resources: [] });
-      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'v_creds', mid.toUpperCase()), { storeId: sRef.id, businessName: req.bizName, password: key });
+      await setDoc(sRef, { 
+        name: req.bizName, category: req.category, address: req.address, 
+        isLive: false, merchantId: mid.toUpperCase(), image: "https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?w=800", 
+        services: [], resources: [] 
+      });
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'v_creds', mid.toUpperCase()), { 
+        storeId: sRef.id, businessName: req.bizName, password: key 
+      });
       await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', req.id));
-      notify("Authorized");
+      notify("Approved!");
     } catch(e) { notify("Permission Denied", "error"); }
   };
 
@@ -204,26 +219,21 @@ export default function App() {
     const reader = new FileReader();
     reader.onloadend = async () => {
        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { image: reader.result });
-       notify("Branding Updated");
+       notify("Image Updated!");
     };
     reader.readAsDataURL(file);
   };
 
-  if (loading) return (
-    <div className="h-screen flex flex-col items-center justify-center bg-emerald-600 text-white gap-4">
-      <Loader2 className="animate-spin" size={40} />
-      <p className="font-black uppercase text-[10px] tracking-[0.4em]">Establishing Secure Channel</p>
-    </div>
-  );
+  if (loading) return <div className="h-screen flex items-center justify-center bg-emerald-600 text-white font-black animate-pulse uppercase tracking-[0.5em] text-xs">Synchronizing Secure Network...</div>;
 
   return (
-    <div className="max-w-md mx-auto bg-slate-50 min-h-screen flex flex-col shadow-2xl relative font-sans text-slate-900 overflow-x-hidden">
+    <div className="max-w-md mx-auto bg-slate-50 min-h-screen flex flex-col shadow-2xl relative font-sans text-slate-900 selection:bg-emerald-100 overflow-x-hidden">
       
-      {/* GLOBAL HEADER */}
+      {/* HEADER */}
       <header className="bg-emerald-600 text-white p-6 pb-12 rounded-b-[3.5rem] shadow-lg sticky top-0 z-50">
         <div className="flex justify-between items-center mb-6">
           <div onClick={() => setView('home')} className="cursor-pointer active:scale-95 transition-all">
-            <h1 className="text-2xl font-black tracking-tighter italic">ChiplunConnect</h1>
+            <h1 className="text-2xl font-black tracking-tighter italic leading-none">ChiplunConnect</h1>
             <p className="text-[10px] font-bold opacity-80 uppercase tracking-widest mt-1">Enterprise V50</p>
           </div>
           <div className="flex gap-2">
@@ -236,16 +246,16 @@ export default function App() {
           </div>
         </div>
         {view === 'home' && (
-          <div className="relative animate-in slide-in-from-top-4">
+          <div className="relative animate-in slide-in-from-top-4 duration-500">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-200" size={18} />
-            <input type="text" placeholder="Search Chiplun Network..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full bg-white/10 border border-white/20 rounded-2xl py-4 pl-12 pr-4 text-white placeholder-emerald-200 outline-none focus:bg-white/20 transition-all shadow-inner" />
+            <input type="text" placeholder="Search verified partners..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full bg-white/10 border border-white/20 rounded-2xl py-4 pl-12 pr-4 text-white placeholder-emerald-200 outline-none focus:bg-white/20 transition-all shadow-inner" />
           </div>
         )}
       </header>
 
       {toast && (
         <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[1000] animate-in slide-in-from-top-4">
-            <div className={`px-6 py-3 rounded-full shadow-2xl font-black text-[10px] uppercase tracking-widest border ${toast.type === 'error' ? 'bg-rose-500 text-white' : 'bg-white text-emerald-600'}`}>
+            <div className={`px-6 py-3 rounded-full shadow-2xl font-black text-[10px] uppercase tracking-widest border ${toast.type === 'error' ? 'bg-rose-500 text-white border-rose-600' : 'bg-white text-emerald-600 border-emerald-100'}`}>
                 {toast.msg}
             </div>
         </div>
@@ -262,6 +272,7 @@ export default function App() {
                <button onClick={() => setView('track')} className="flex flex-col items-center gap-2"><div className="p-4 bg-white rounded-2xl shadow-sm border border-slate-100 active:scale-90 transition-all"><Ticket size={20} className="text-emerald-500"/></div><span className="text-[9px] font-black uppercase text-slate-400">Tracker</span></button>
                <button onClick={() => setView('business')} className="flex flex-col items-center gap-2"><div className="p-4 bg-white rounded-2xl shadow-sm border border-slate-100 active:scale-90 transition-all"><Plus size={20} className="text-amber-500"/></div><span className="text-[9px] font-black uppercase text-slate-400">Partner</span></button>
             </div>
+            
             <section className="space-y-4">
               <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic px-1">Network Directory</h2>
               <div className="space-y-4">
@@ -281,7 +292,7 @@ export default function App() {
           </div>
         )}
 
-        {/* VIEW: ADMIN VAULT (FULLY RESTORED) */}
+        {/* VIEW: ADMIN VAULT */}
         {view === 'admin' && (
           <div className="pt-6 space-y-6 animate-in slide-in-from-bottom-8">
              <div className="flex justify-between items-center px-1">
@@ -290,40 +301,41 @@ export default function App() {
              </div>
 
              {user?.uid !== MASTER_ADMIN_UID ? (
-               <div className="bg-slate-900 p-8 rounded-[3.5rem] shadow-2xl space-y-6 text-center border-t-8 border-emerald-500">
-                  <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto text-emerald-500 mb-2"><Lock size={32} /></div>
-                  <h3 className="text-white text-xl font-black uppercase italic tracking-tighter leading-none">Authorization Required</h3>
-                  <div className="space-y-4">
-                     <input type="email" placeholder="Master Email" value={adminCreds.email} onChange={e => setAdminCreds({...adminCreds, email: e.target.value})} className="w-full bg-slate-800 border border-slate-700 p-5 rounded-2xl text-white outline-none focus:border-emerald-500 font-bold text-xs" />
-                     <input type="password" placeholder="Passkey" value={adminCreds.pass} onChange={e => setAdminCreds({...adminCreds, pass: e.target.value})} className="w-full bg-slate-800 border border-slate-700 p-5 rounded-2xl text-white outline-none focus:border-emerald-500 font-bold text-xs" />
-                     <button onClick={handleAdminAuth} className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black uppercase text-[10px] tracking-widest active:scale-95 shadow-xl">Unlock Panel</button>
-                  </div>
+               <div className="bg-white p-12 rounded-[3.5rem] shadow-2xl border border-rose-100 text-center space-y-6 animate-in zoom-in-95">
+                 <AlertCircle size={48} className="mx-auto text-rose-500 animate-pulse" />
+                 <h3 className="text-xl font-black uppercase italic tracking-tighter">Access Denied</h3>
+                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed text-center">System restricted to Master Administrator ID. Unauthorized bypass attempts are blocked by Firestore Protocol.</p>
                </div>
              ) : (
                <div className="space-y-6 pb-20 px-1 animate-in fade-in">
                   <div className="bg-white p-6 rounded-[2.5rem] border-l-8 border-emerald-500 flex justify-between items-center shadow-lg">
-                     <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Session Authorized</p><p className="text-lg font-black uppercase italic tracking-tighter text-emerald-600 mt-1 leading-none">Master Admin</p></div>
-                     <button onClick={handleLogout} className="p-3 bg-rose-50 text-rose-500 rounded-xl active:scale-90"><LogOut size={20}/></button>
+                     <div>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Authorized ID</p>
+                        <p className="text-lg font-black uppercase italic tracking-tighter text-emerald-600 mt-1 leading-none">Master Admin</p>
+                     </div>
+                     <button onClick={() => setView('home')} className="p-3 bg-slate-50 text-slate-500 rounded-xl active:scale-90"><Compass size={20}/></button>
                   </div>
+
                   <div className="flex bg-slate-200 p-1 rounded-2xl shadow-inner">
                     <button onClick={() => setAdminTab('requests')} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase transition-all ${adminTab === 'requests' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500'}`}>Pending ({requests.length})</button>
                     <button onClick={() => setAdminTab('merchants')} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase transition-all ${adminTab === 'merchants' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500'}`}>Active ({stores.length})</button>
                  </div>
-                 {adminTab === 'requests' ? requests.map(r => (
-                    <div key={r.id} className="bg-white p-6 rounded-[2.5rem] border border-slate-100 space-y-4 shadow-sm">
+
+                 {adminTab === 'requests' ? (requests || []).map(r => (
+                    <div key={r.id} className="bg-white p-6 rounded-[2.5rem] border border-slate-100 space-y-4 shadow-sm animate-in slide-in-from-bottom-4">
                         <div className="flex justify-between items-start">
-                           <h4 className="font-black text-sm uppercase italic tracking-tight">{r.bizName}</h4>
-                           <span className="text-[8px] font-black bg-slate-50 px-2 py-1 rounded uppercase">{r.category}</span>
+                           <h4 className="font-black text-sm uppercase italic tracking-tight leading-none">{r.bizName}</h4>
+                           <span className="text-[8px] font-black bg-slate-50 px-2 py-1 rounded uppercase tracking-tighter">{r.category}</span>
                         </div>
                         <div className="flex gap-2">
-                           <button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', r.id))} className="flex-1 py-3 border border-rose-100 text-rose-500 rounded-2xl font-black text-[9px] uppercase">Reject</button>
-                           <button onClick={() => adminApprove(r)} className="flex-[2] py-3 bg-emerald-600 text-white rounded-2xl font-black text-[9px] uppercase shadow-lg">Approve</button>
+                           <button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', r.id))} className="flex-1 py-3 border border-rose-100 text-rose-500 rounded-2xl font-black text-[9px] uppercase active:scale-95">Reject</button>
+                           <button onClick={() => adminApprove(r)} className="flex-[2] py-3 bg-emerald-600 text-white rounded-2xl font-black text-[9px] uppercase shadow-lg active:scale-95 tracking-widest italic">Approve</button>
                         </div>
                     </div>
-                 )) : stores.map(s => (
-                    <div key={s.id} className="bg-white p-5 rounded-[2.5rem] border border-slate-100 shadow-sm flex justify-between items-center">
-                       <div><h4 className="font-black text-xs uppercase italic leading-none">{s.name}</h4><p className="text-[8px] font-black text-emerald-600 mt-1 uppercase">MID: {s.merchantId}</p></div>
-                       <button onClick={() => { if(window.confirm("Purge Node?")) deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', s.id)); }} className="p-2 bg-slate-50 rounded-lg text-rose-600 active:scale-90"><Trash2 size={16}/></button>
+                 )) : (stores || []).map(s => (
+                    <div key={s.id} className="bg-white p-5 rounded-[2.5rem] border border-slate-100 shadow-sm flex justify-between items-center animate-in fade-in">
+                       <div><h4 className="font-black text-xs uppercase italic leading-none">{s.name}</h4><p className="text-[8px] font-black text-emerald-600 mt-1 uppercase tracking-widest leading-none">MID: {s.merchantId}</p></div>
+                       <button onClick={() => { if(window.confirm("Purge Store Data?")) deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', s.id)); }} className="p-2 bg-slate-50 rounded-lg text-rose-600 active:scale-90 transition-all"><Trash2 size={16}/></button>
                     </div>
                  ))}
                </div>
@@ -331,21 +343,22 @@ export default function App() {
           </div>
         )}
 
-        {/* VIEW: MERCHANT DASHBOARD (FULLY RESTORED) */}
+        {/* VIEW: MERCHANT DASHBOARD */}
         {view === 'merchant' && merchantData && (
           <div className="pt-6 space-y-6 animate-in slide-in-from-bottom-8 px-1 pb-32">
              <div className="flex justify-between items-center px-1">
-                <h2 className="text-2xl font-black text-emerald-900 uppercase italic tracking-tighter">{profile?.businessName}</h2>
-                <button onClick={() => { setView('home'); setProfile({role:'customer'}); }} className="p-3 bg-rose-50 text-rose-500 rounded-xl"><LogOut size={20}/></button>
+                <h2 className="text-2xl font-black text-emerald-900 uppercase italic tracking-tighter leading-none">{profile?.businessName}</h2>
+                <button onClick={() => { setView('home'); setProfile({role:'customer'}); }} className="p-3 bg-rose-50 text-rose-500 rounded-xl active:scale-90"><LogOut size={20}/></button>
              </div>
+             
              <div className="grid grid-cols-2 gap-4">
                 <div className="bg-slate-900 p-6 rounded-[2.5rem] text-white flex flex-col justify-between shadow-lg h-44">
-                   <p className="text-[8px] font-black uppercase opacity-50 tracking-widest leading-none">STATUS</p>
+                   <p className="text-[8px] font-black uppercase opacity-50 tracking-widest leading-none">STORE STATUS</p>
                    <p className="text-lg font-black uppercase italic tracking-tighter leading-none">{merchantData.store.isLive ? 'Online' : 'Offline'}</p>
                    <button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { isLive: !merchantData.store.isLive })} className={`w-14 h-8 rounded-full p-1 transition-all ${merchantData.store.isLive ? 'bg-emerald-600' : 'bg-slate-700'}`}><div className={`w-6 h-6 rounded-full transition-all bg-white ${merchantData.store.isLive ? 'ml-6' : 'ml-0'}`} /></button>
                 </div>
                 <div className="bg-white p-2 rounded-[2.5rem] border border-slate-100 shadow-lg relative h-44 group overflow-hidden">
-                   <img src={merchantData.store.image} className="w-full h-full object-cover rounded-[2rem]" alt="" />
+                   <img src={merchantData.store.image} className="w-full h-full object-cover rounded-[2rem] group-hover:scale-110 transition-all duration-700" alt="" />
                    <label className="absolute inset-0 flex flex-col items-center justify-center cursor-pointer bg-black/20 opacity-0 group-hover:opacity-100 transition-all">
                       <Camera size={24} className="text-white" /><input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
                    </label>
@@ -361,18 +374,18 @@ export default function App() {
              {mTab === 'ledger' && (
                 <div className="space-y-4 animate-in fade-in">
                    <div className="grid grid-cols-2 gap-4">
-                      <div className="bg-white p-6 rounded-[2rem] border border-slate-100 text-center shadow-sm"><p className="text-[8px] font-black text-slate-400 uppercase">Revenue</p><p className="text-2xl font-black text-emerald-600 italic">₹{merchantData.rev}</p></div>
-                      <div className="bg-white p-6 rounded-[2rem] border border-slate-100 text-center shadow-sm"><p className="text-[8px] font-black text-slate-400 uppercase">Queue</p><p className="text-2xl font-black text-blue-600 italic">{merchantData.queue.length}</p></div>
+                      <div className="bg-white p-6 rounded-[2rem] border border-slate-100 text-center shadow-sm"><p className="text-[8px] font-black text-slate-400 uppercase">Revenue</p><p className="text-2xl font-black text-emerald-600 italic leading-none">₹{merchantData.rev}</p></div>
+                      <div className="bg-white p-6 rounded-[2rem] border border-slate-100 text-center shadow-sm"><p className="text-[8px] font-black text-slate-400 uppercase">Queue</p><p className="text-2xl font-black text-blue-600 italic leading-none">{merchantData.queue.length}</p></div>
                    </div>
                    {merchantData.queue.map((b, i) => (
                       <div key={i} className="bg-white p-5 rounded-[2rem] border-l-8 border-emerald-500 shadow-sm space-y-4">
                          <div className="flex justify-between items-start">
-                            <div><p className="font-black text-sm uppercase italic">{b.custName || 'Guest'}</p><p className="text-[9px] font-bold text-slate-400 uppercase leading-none mt-1">{b.serviceName} • {b.time}</p></div>
-                            <span className="bg-slate-50 px-2 py-1 rounded text-[10px] font-black italic">#{b.displayId}</span>
+                            <div><p className="font-black text-sm uppercase italic leading-none">{b.custName || 'User'}</p><p className="text-[9px] font-bold text-slate-400 uppercase leading-none mt-1">{b.serviceName} • {b.time}</p></div>
+                            <span className="bg-slate-50 px-2 py-1 rounded text-[10px] font-black italic tracking-widest">#{b.displayId}</span>
                          </div>
                          <div className="flex gap-2">
-                            <button onClick={() => window.open(`tel:${b.phone}`)} className="flex-1 p-3 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center gap-2 active:scale-95"><Phone size={16}/><span className="text-[9px] font-black uppercase">Call</span></button>
-                            <button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'bookings', b.id), { status: 'completed' })} className="flex-1 p-3 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center gap-2 active:scale-95"><CheckCircle2 size={16}/><span className="text-[9px] font-black uppercase">Done</span></button>
+                            <button onClick={() => window.open(`tel:${b.phone}`)} className="flex-1 p-3 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center gap-2 active:scale-95"><Phone size={16}/><span className="text-[9px] font-black uppercase tracking-widest">Call</span></button>
+                            <button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'bookings', b.id), { status: 'completed' })} className="flex-1 p-3 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center gap-2 active:scale-95"><CheckCircle2 size={16}/><span className="text-[9px] font-black uppercase tracking-widest">Done</span></button>
                          </div>
                       </div>
                    ))}
@@ -382,13 +395,13 @@ export default function App() {
              {mTab === 'assets' && (
                 <div className="bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-sm space-y-4 animate-in fade-in">
                    <button onClick={() => {
-                      const n = prompt("Name/Fleet Description:"); const t = prompt("Start Time (Optional):"); const c = prompt("Capacity:");
+                      const n = prompt("Provider Name/Fleet No:"); const t = prompt("Time (Optional):"); const c = prompt("Max Seats/Clients:");
                       if(n) updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { resources: arrayUnion({ id: Math.random().toString(36).substr(2,4).toUpperCase(), name: n, time: t, capacity: Number(c||1) }) });
-                   }} className="w-full py-4 border-2 border-dashed rounded-2xl font-black uppercase text-[10px] text-slate-400">+ Add Asset</button>
+                   }} className="w-full py-4 border-2 border-dashed rounded-2xl font-black uppercase text-[10px] text-slate-400 active:scale-95 transition-all">+ Add Item</button>
                    {(merchantData.store.resources || []).map((r, i) => (
                       <div key={i} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                         <div className="text-left"><p className="font-black text-xs uppercase italic">{r.name}</p>{r.time && <p className="text-[8px] font-black text-slate-400 uppercase">Time: {r.time} • Cap: {r.capacity}</p>}</div>
-                         <button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { resources: arrayRemove(r) })} className="p-2 text-rose-500"><Trash2 size={16}/></button>
+                         <div className="text-left"><p className="font-black text-xs uppercase italic">{r.name}</p>{r.time && <p className="text-[8px] font-black text-slate-400 uppercase">Starts: {r.time} • Cap: {r.capacity}</p>}</div>
+                         <button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { resources: arrayRemove(r) })} className="p-2 text-rose-500 active:scale-90 transition-all"><Trash2 size={16}/></button>
                       </div>
                    ))}
                 </div>
@@ -399,11 +412,11 @@ export default function App() {
                    <button onClick={() => {
                       const n = prompt("Service Label:"); const p = prompt("Price (₹):");
                       if(n && p) updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { services: arrayUnion({ name: n, price: Number(p) }) });
-                   }} className="w-full py-4 border-2 border-dashed rounded-2xl font-black uppercase text-[10px] text-slate-400">+ Add Service Rate</button>
+                   }} className="w-full py-4 border-2 border-dashed rounded-2xl font-black uppercase text-[10px] text-slate-400 active:scale-95 transition-all">+ Add Price Entry</button>
                    {(merchantData.store.services || []).map((s, i) => (
                       <div key={i} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-100">
                          <p className="font-black text-xs uppercase italic">{s.name} • ₹{s.price}</p>
-                         <button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { services: arrayRemove(s) })} className="p-2 text-rose-500"><X size={16}/></button>
+                         <button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stores', profile.businessId), { services: arrayRemove(s) })} className="p-2 text-rose-500 active:scale-90 transition-all"><X size={16}/></button>
                       </div>
                    ))}
                 </div>
@@ -411,7 +424,49 @@ export default function App() {
           </div>
         )}
 
-        {/* VIEW: DETAIL (FIXED BOOKING) */}
+        {/* VIEW: TOKEN TRACKER */}
+        {view === 'track' && (
+           <div className="pt-6 space-y-6 animate-in slide-in-from-bottom-8 px-1">
+              <h2 className="text-2xl font-black text-emerald-900 uppercase italic tracking-tighter text-center leading-none">Queue Tracker</h2>
+              <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-slate-100 space-y-4">
+                 <input placeholder="Enter Token ID (CH-XXXX)" value={trackId} onChange={e => setTrackId(e.target.value.toUpperCase())} className="w-full bg-slate-50 border p-5 rounded-2xl text-lg font-black text-center tracking-widest outline-none focus:border-emerald-500 shadow-inner" />
+              </div>
+              {mySpot && !mySpot.error ? (
+                <div className="bg-white p-8 rounded-[3.5rem] shadow-2xl border-t-8 border-emerald-500 text-center space-y-6 animate-in zoom-in-95">
+                   <div className="w-20 h-20 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto text-3xl font-black italic shadow-inner">{mySpot.pos}</div>
+                   <div><h3 className="text-3xl font-black tracking-tighter uppercase italic leading-none">{mySpot.displayId}</h3><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">Rank Verified</p></div>
+                   <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-slate-50 p-4 rounded-3xl border border-slate-100"><p className="text-[8px] font-black text-slate-400 uppercase">Wait Rank</p><p className="text-xl font-black text-emerald-600">{mySpot.pos === 1 ? "READY" : (mySpot.pos - 1) + " People"}</p></div>
+                      <div className="bg-slate-50 p-4 rounded-3xl border border-slate-100"><p className="text-[8px] font-black text-slate-400 uppercase">Est. Wait</p><p className="text-xl font-black text-blue-600">~{mySpot.wait}m</p></div>
+                   </div>
+                </div>
+              ) : trackId && <p className="text-center text-slate-400 font-black uppercase text-[10px] py-10 italic animate-pulse tracking-widest">Validating session ID...</p>}
+           </div>
+        )}
+
+        {/* VIEW: PARTNER HUB */}
+        {view === 'business' && profile.role !== 'vendor' && (
+          <div className="pt-6 space-y-6 animate-in slide-in-from-bottom-8 px-1">
+             <div className="text-center"><h2 className="text-3xl font-black text-emerald-900 uppercase italic tracking-tighter leading-none">Partner Hub</h2></div>
+             <div className="bg-white p-8 rounded-[3.5rem] shadow-xl border border-slate-100 space-y-6 text-center mx-1">
+                 <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mx-auto text-emerald-600 shadow-inner"><ShieldCheck size={32} /></div>
+                 <div className="space-y-4">
+                    <input value={vLogin.id} onChange={e => setVLogin({...vLogin, id: e.target.value})} className="w-full bg-slate-50 border p-5 rounded-2xl text-lg font-black uppercase text-center outline-none focus:border-emerald-500 shadow-inner" placeholder="Merchant ID" />
+                    <input type="password" value={vLogin.pass} onChange={e => setVLogin({...vLogin, pass: e.target.value})} className="w-full bg-slate-50 border p-5 rounded-2xl text-center outline-none focus:border-emerald-500 shadow-inner" placeholder="Access Key" />
+                    <button onClick={handleVLogin} className="w-full bg-emerald-600 text-white py-5 rounded-[1.8rem] font-black uppercase text-[10px] tracking-widest active:scale-95 shadow-xl transition-all">Unlock Business Console</button>
+                 </div>
+             </div>
+             <div className="bg-white p-8 rounded-[3.5rem] border border-slate-100 text-center space-y-4">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">New to the network?</p>
+                <div className="space-y-3">
+                   <input placeholder="Business Name" value={regForm.bizName} onChange={e => setRegForm({...regForm, bizName: e.target.value})} className="w-full bg-slate-50 p-4 rounded-xl text-xs font-bold border border-slate-100" />
+                   <button onClick={() => { setIsProcessing(true); addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'requests'), { ...regForm, status: 'pending', timestamp: Date.now() }).then(() => { notify("Request Sent!"); setView('home'); setIsProcessing(false); }) }} className="w-full py-4 bg-slate-900 text-white rounded-xl font-black uppercase text-[9px] tracking-widest">Apply for authorization</button>
+                </div>
+             </div>
+          </div>
+        )}
+
+        {/* VIEW: DETAIL (BOOKING FIX) */}
         {view === 'detail' && activeStore && (
            <div className="pt-4 space-y-6 animate-in slide-in-from-right-4 px-1 pb-32">
              <button onClick={() => setView('home')} className="flex items-center text-emerald-600 font-black text-[10px] uppercase tracking-widest px-2 active:scale-95 leading-none"><ArrowLeft size={16} className="mr-2"/> Return</button>
@@ -438,25 +493,25 @@ export default function App() {
 
              {activeCart && (
                 <div className="bg-white p-6 rounded-[3rem] shadow-sm border border-slate-100 animate-in slide-in-from-bottom-6 space-y-5 mx-1">
-                   <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center italic leading-none">2. Provider Details</h3>
-                   <input placeholder="Your Name" value={bookForm.custName} onChange={e => setBookForm({...bookForm, custName: e.target.value})} className="w-full bg-slate-50 p-4 rounded-xl font-black text-[11px] border border-slate-100 uppercase outline-none focus:border-emerald-500 shadow-inner" />
+                   <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center italic leading-none">2. Details</h3>
+                   <input placeholder="Customer Name" value={bookForm.custName} onChange={e => setBookForm({...bookForm, custName: e.target.value})} className="w-full bg-slate-50 p-4 rounded-xl font-black text-[11px] border border-slate-100 uppercase outline-none focus:border-emerald-500 shadow-inner" />
                    
                    <div className="space-y-2">
-                     <label className="text-[8px] font-black text-slate-400 uppercase ml-2 tracking-widest">Select Provider</label>
+                     <label className="text-[8px] font-black text-slate-400 uppercase ml-2 tracking-widest">Select Operator/Timing</label>
                      {(activeStore?.resources || []).map(r => {
                        const { count, left } = checkAvailability(activeStore.id, r.id, r.capacity);
                        const isFull = activeStore.category === 'travel' && left <= 0;
                        return (
-                         <div key={r.id} onClick={() => !isFull && setBookForm({...bookForm, resId: r.id})} className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex justify-between items-center ${bookForm.resId === r.id ? 'border-emerald-600 bg-emerald-50' : 'border-slate-50 opacity-60'} ${isFull ? 'opacity-30' : ''}`}>
-                           <div className="text-left"><p className="font-black text-[10px] uppercase italic leading-none">{r.name}</p>{r.time && <p className="text-[8px] font-black text-blue-500 mt-1 uppercase tracking-widest">Time: {r.time}</p>}</div>
-                           <span className={`text-[8px] font-black uppercase ${isFull ? 'text-rose-500' : 'text-emerald-600'}`}>{activeStore.category === 'salon' ? `Wait Rank: ${count + 1}` : isFull ? 'FULL' : `${left} Seats`}</span>
+                         <div key={r.id} onClick={() => !isFull && setBookForm({...bookForm, resId: r.id})} className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex justify-between items-center ${bookForm.resId === r.id ? 'border-emerald-600 bg-emerald-50' : 'border-slate-50 opacity-60'} ${isFull ? 'opacity-30 grayscale' : ''}`}>
+                           <div className="text-left"><p className="font-black text-[10px] uppercase italic leading-none">{r.name}</p>{r.time && <p className="text-[8px] font-black text-blue-500 mt-1 uppercase tracking-widest leading-none">Starts: {r.time}</p>}</div>
+                           <span className={`text-[8px] font-black uppercase ${isFull ? 'text-rose-500' : 'text-emerald-600'}`}>{activeStore.category === 'salon' ? `Wait Rank: ${count + 1}` : isFull ? 'FULL' : `${left} S Left`}</span>
                          </div>
                        );
                      })}
                    </div>
 
                    {activeStore.category === 'travel' && bookForm.resId && (
-                      <div className="space-y-1"><label className="text-[8px] font-black text-slate-400 uppercase ml-2">Total Seats</label><input type="number" min="1" max="10" value={bookForm.seats} onChange={e => setBookForm({...bookForm, seats: Number(e.target.value)})} className="w-full bg-slate-50 p-4 rounded-xl font-black text-xs outline-none border border-slate-100 shadow-inner" /></div>
+                      <div className="space-y-1"><label className="text-[8px] font-black text-slate-400 uppercase ml-2">Total Seats Required</label><input type="number" min="1" max="10" value={bookForm.seats} onChange={e => setBookForm({...bookForm, seats: Number(e.target.value)})} className="w-full bg-slate-50 p-4 rounded-xl font-black text-xs outline-none border border-slate-100 shadow-inner" /></div>
                    )}
 
                    <input placeholder="WhatsApp Number" value={bookForm.phone} onChange={e => setBookForm({...bookForm, phone: e.target.value})} className="w-full bg-slate-50 p-4 rounded-xl font-black text-[10px] border border-slate-100 uppercase" />
@@ -467,52 +522,18 @@ export default function App() {
            </div>
         )}
 
-        {/* HUB AND TRACKER REMAIN FUNCTIONAL */}
-        {view === 'track' && (
-           <div className="pt-6 space-y-6 animate-in slide-in-from-bottom-8 px-1">
-              <h2 className="text-2xl font-black text-emerald-900 uppercase italic tracking-tighter text-center leading-none">Queue Status</h2>
-              <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-slate-100 space-y-4">
-                 <input placeholder="Enter Token ID (CH-XXXX)" value={trackId} onChange={e => setTrackId(e.target.value.toUpperCase())} className="w-full bg-slate-50 border p-5 rounded-2xl text-lg font-black text-center tracking-widest outline-none focus:border-emerald-500 shadow-inner" />
-              </div>
-              {mySpot && !mySpot.error ? (
-                <div className="bg-white p-8 rounded-[3.5rem] shadow-2xl border-t-8 border-emerald-500 text-center space-y-6 animate-in zoom-in-95">
-                   <div className="w-20 h-20 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto text-3xl font-black italic shadow-inner">{mySpot.pos}</div>
-                   <div><h3 className="text-3xl font-black tracking-tighter uppercase italic leading-none">{mySpot.displayId}</h3><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">Position Identified</p></div>
-                   <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-slate-50 p-4 rounded-3xl border border-slate-100"><p className="text-[8px] font-black text-slate-400 uppercase">Wait Rank</p><p className="text-xl font-black text-emerald-600">{mySpot.pos === 1 ? "READY" : (mySpot.pos - 1) + " People"}</p></div>
-                      <div className="bg-slate-50 p-4 rounded-3xl border border-slate-100"><p className="text-[8px] font-black text-slate-400 uppercase">Est. Wait</p><p className="text-xl font-black text-blue-600">~{mySpot.wait}m</p></div>
-                   </div>
-                </div>
-              ) : trackId && <p className="text-center text-slate-400 font-black uppercase text-[10px] py-10 italic animate-pulse tracking-widest">Scanning network ledger...</p>}
-           </div>
-        )}
-
-        {view === 'business' && (
-           <div className="pt-6 space-y-6 animate-in slide-in-from-bottom-8 px-1">
-             <div className="text-center"><h2 className="text-3xl font-black text-emerald-900 uppercase italic tracking-tighter leading-none">Partner Hub</h2></div>
-             <div className="bg-white p-8 rounded-[3.5rem] shadow-xl border border-slate-100 space-y-6 text-center mx-1">
-                 <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mx-auto text-emerald-600 shadow-inner"><ShieldCheck size={32} /></div>
-                 <div className="space-y-4">
-                    <input value={vLogin.id} onChange={e => setVLogin({...vLogin, id: e.target.value})} className="w-full bg-slate-50 border p-5 rounded-2xl text-lg font-black uppercase text-center outline-none focus:border-emerald-500 shadow-inner" placeholder="Merchant ID" />
-                    <input type="password" value={vLogin.pass} onChange={e => setVLogin({...vLogin, pass: e.target.value})} className="w-full bg-slate-50 border p-5 rounded-2xl text-center outline-none focus:border-emerald-500 shadow-inner" placeholder="Access Key" />
-                    <button onClick={handleMerchantLogin} className="w-full bg-emerald-600 text-white py-5 rounded-[1.8rem] font-black uppercase text-[10px] tracking-widest active:scale-95 shadow-xl transition-all">Authorize Device</button>
-                 </div>
-             </div>
-           </div>
-        )}
-
       </main>
 
       {/* MODALS */}
       {showPayment && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[1000] flex items-center justify-center p-6 animate-in fade-in duration-300">
            <div className="bg-white w-full max-w-sm rounded-[3rem] p-8 shadow-2xl space-y-6 text-center">
-              <h3 className="text-xl font-black uppercase tracking-tighter italic leading-none">Verify Token</h3>
+              <h3 className="text-xl font-black uppercase tracking-tighter italic leading-none">Authorization</h3>
               <div className="space-y-3">
-                 <button onClick={() => notify("UPI Gateway Integration Pending", "info")} className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between opacity-50"><span className="font-black text-[10px] uppercase">Online/UPI</span><span className="text-[8px] bg-rose-100 text-rose-600 px-2 py-1 rounded font-black tracking-widest">SOON</span></button>
+                 <button onClick={() => notify("GPay API coming in V51 Patch", "info")} className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between opacity-50"><span className="font-black text-[10px] uppercase">Online Payment</span><span className="text-[8px] bg-rose-100 text-rose-600 px-2 py-1 rounded font-black tracking-widest">SOON</span></button>
                  <button onClick={() => setShowConfirm(true)} className="w-full p-6 bg-emerald-600 text-white rounded-[1.8rem] shadow-xl flex items-center justify-between active:scale-95 transition-all"><span className="font-black text-sm uppercase tracking-widest">Confirm Cash</span><Banknote size={20} /></button>
               </div>
-              <button onClick={() => setShowPayment(false)} className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Go Back</button>
+              <button onClick={() => setShowPayment(false)} className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Return</button>
            </div>
         </div>
       )}
@@ -521,18 +542,13 @@ export default function App() {
         <div className="fixed inset-0 bg-emerald-600 z-[1001] flex items-center justify-center p-6 animate-in zoom-in-95 duration-200 text-white text-center">
            <div className="space-y-8">
               <AlertCircle size={80} className="mx-auto animate-bounce" />
-              <div className="space-y-2">
-                 <h3 className="text-4xl font-black uppercase italic tracking-tighter leading-none">Complete?</h3>
-                 <p className="text-sm font-bold uppercase opacity-70 tracking-widest">Generating Token for ₹{activeCart?.price || 0}</p>
-              </div>
-              <div className="space-y-3 pt-6">
-                 <button onClick={executeBooking} className="w-64 py-6 bg-white text-emerald-600 rounded-full font-black uppercase shadow-2xl active:scale-90 transition-all text-lg tracking-widest italic">YES, GENERATE</button>
-              </div>
+              <div className="space-y-2"><h3 className="text-4xl font-black uppercase italic tracking-tighter leading-none">Complete?</h3><p className="text-sm font-bold uppercase opacity-70 tracking-widest">Session Authorization: ₹{activeCart?.price || 0}</p></div>
+              <div className="space-y-3 pt-6"><button onClick={handleBookingExecution} className="w-64 py-6 bg-white text-emerald-600 rounded-full font-black uppercase shadow-2xl active:scale-90 transition-all text-lg tracking-widest italic">YES, GENERATE</button></div>
            </div>
         </div>
       )}
 
-      {/* NAV BAR */}
+      {/* NAVIGATION BAR */}
       <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/95 backdrop-blur-xl border-t border-slate-100 px-8 py-5 flex justify-between items-center z-[100]">
         <button onClick={() => setView('home')} className={`transition-all ${view === 'home' ? 'text-emerald-600 scale-125' : 'text-slate-300'}`}><Compass size={24} /></button>
         <button onClick={() => setView('track')} className={`transition-all ${view === 'track' ? 'text-emerald-600 scale-125' : 'text-slate-300'}`}><Ticket size={24} /></button>
